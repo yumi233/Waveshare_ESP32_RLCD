@@ -22,6 +22,7 @@
 #include "api_balance_service.h"
 #include "settings_portal_service.h"
 #include "environment_service.h"
+#include "electricity_service.h"
 #include "lvgl.h"
 #include "custom_lcd_display.h"
 
@@ -161,7 +162,7 @@ private:
         });
         mcp_server.AddTool(
             "self.panel.show_page",
-            "切换状态屏页面。page 使用 dashboard（主页）、performance（电脑性能）、syna（夏柠对话和待办）或 computers（电脑选择）。",
+            "切换状态屏页面。page 使用 dashboard（主页）、performance（电脑性能）、syna（夏柠对话和待办）、electricity（宿舍用电）或 computers（电脑选择）。",
             PropertyList({Property("page", kPropertyTypeString)}),
             [this](const PropertyList& properties) -> ReturnValue {
                 const std::string requested =
@@ -175,13 +176,29 @@ private:
                          requested == "对话" || requested == "待办") page = "syna";
                 else if (requested == "computers" || requested == "computer" ||
                          requested == "电脑" || requested == "电脑列表") page = "computers";
+                else if (requested == "electricity" || requested == "电量" ||
+                         requested == "用电" || requested == "宿舍用电") page = "electricity";
                 else throw std::runtime_error(
-                    "Unknown page; use dashboard, performance, syna or computers");
+                    "Unknown page; use dashboard, performance, syna, electricity or computers");
 
                 Application::GetInstance().Schedule([this, page]() {
                     display_->ShowPanelPage(page);
                 });
                 return std::string("已切换到 ") + page;
+            });
+        mcp_server.AddTool(
+            "self.dorm.electricity",
+            "读取五邑大学宿舍余电缓存。若需要更新，先等待设备完成网络查询。",
+            PropertyList(), [](const PropertyList&) -> ReturnValue {
+                PanelElectricitySnapshot value = {};
+                if (!ElectricityService::GetInstance().GetSnapshot(value) ||
+                    !value.configured) return std::string("宿舍用电未配置，请在设备设置页填写楼栋和房间");
+                if (!value.available) return std::string("宿舍余电暂不可用，请检查校园网或楼栋房间号");
+                char text[128];
+                snprintf(text, sizeof(text), "%d栋%d室剩余电量 %.2f 度，已用电量 %.1f 度%s",
+                         value.building, value.room, value.remaining_kwh,
+                         value.used_kwh, value.stale ? "（上次查询数据）" : "");
+                return std::string(text);
             });
         mcp_server.AddTool(
             "self.computer.list", "列出状态屏发现的电脑、在线状态和当前选择。",
@@ -323,6 +340,9 @@ public:
         }
         if (!ApiBalanceService::GetInstance().Start()) {
             ESP_LOGE(TAG, "Failed to start API balance service");
+        }
+        if (!ElectricityService::GetInstance().Start()) {
+            ESP_LOGE(TAG, "Failed to start electricity service");
         }
    }
 

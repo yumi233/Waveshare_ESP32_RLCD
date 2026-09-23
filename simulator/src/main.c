@@ -20,6 +20,7 @@ enum {
     COMMAND_CYCLE_STATE = 1U << 6,
     COMMAND_PERFORMANCE = 1U << 7,
     COMMAND_SYNA = 1U << 8,
+    COMMAND_ELECTRICITY = 1U << 9,
 };
 
 static volatile uint32_t pending_commands;
@@ -68,6 +69,9 @@ static int watch_sdl_events(void *userdata, SDL_Event *event)
         case SDLK_s:
             pending_commands |= COMMAND_SYNA;
             break;
+        case SDLK_e:
+            pending_commands |= COMMAND_ELECTRICITY;
+            break;
         case SDLK_DOWN:
         case SDLK_TAB:
             pending_commands |= COMMAND_SELECT_NEXT;
@@ -100,6 +104,7 @@ static void process_pending_commands(void)
     if(commands & COMMAND_SHOW_COMPUTERS) ui_show_computers();
     if(commands & COMMAND_PERFORMANCE) ui_show_performance();
     if(commands & COMMAND_SYNA) ui_show_syna();
+    if(commands & COMMAND_ELECTRICITY) ui_show_electricity();
     if(commands & COMMAND_TOGGLE_PAGE) ui_toggle_page();
     if(commands & COMMAND_SELECT_NEXT) ui_select_computer(1);
     if(commands & COMMAND_SELECT_PREVIOUS) ui_select_computer(-1);
@@ -134,6 +139,7 @@ int main(void)
                           2.4f, 18.7f, true);
     ui_update_codex_quota(100, 91, true, false);
     ui_update_api_balance("DeepSeek", "CNY 86.42");
+    ui_update_electricity(46, 416, 32.50f, 128.4f, true, true, false);
     ui_update_pc_connected(true);
     ui_update_syna_conversation("今天还有什么安排？",
                                 "你有 2 项待办，最近一项是整理开发文档。");
@@ -168,8 +174,11 @@ int main(void)
     else if(start_page != NULL && strcmp(start_page, "syna") == 0) {
         ui_show_syna();
     }
+    else if(start_page != NULL && strcmp(start_page, "electricity") == 0) {
+        ui_show_electricity();
+    }
     else if(start_page != NULL && strcmp(start_page, "about") == 0) {
-        ui_show_syna();
+        ui_show_electricity();
         ui_toggle_page();
     }
 

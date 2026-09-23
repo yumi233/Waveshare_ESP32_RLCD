@@ -18,6 +18,7 @@
 #include "api_balance_service.h"
 #include "settings_portal_service.h"
 #include "environment_service.h"
+#include "electricity_service.h"
 #include "ui.h"
 
 void CustomLcdDisplay::Lvgl_flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * color_p)
@@ -155,6 +156,7 @@ void CustomLcdDisplay::SetupUI() {
     ui_set_agent_home_mode(SettingsPortalService::GetInstance().GetAgentHomeMode());
     ui_update_agent_state("OFFLINE");
     ui_update_api_balance("API", "--");
+    ui_update_electricity(0, 0, 0, 0, false, false, false);
     ui_update_codex_quota(-1, -1, false, false);
     ui_update_media(false, "stopped", "", "", 0, 0, "");
     ui_update_performance(0, 0, 0, false, 0, 0, false, 0, false,
@@ -182,6 +184,7 @@ bool CustomLcdDisplay::ShowPanelPage(const std::string& page) {
     if (page == "dashboard") ui_show_dashboard();
     else if (page == "performance") ui_show_performance();
     else if (page == "syna") ui_show_syna();
+    else if (page == "electricity") ui_show_electricity();
     else if (page == "computers") ui_show_computers();
     else return false;
     return true;
@@ -286,6 +289,11 @@ void CustomLcdDisplay::UpdateStatusBar(bool update_all) {
         ApiBalanceService::GetInstance().GetSnapshot(api_balance);
     const bool api_balance_changed = api_balance_available &&
         api_balance.generation != api_balance_generation_;
+    PanelElectricitySnapshot electricity = {};
+    const bool electricity_available =
+        ElectricityService::GetInstance().GetSnapshot(electricity);
+    const bool electricity_changed = electricity_available &&
+        electricity.generation != electricity_generation_;
 
     DisplayLockGuard lock(this);
     ui_set_agent_home_mode(SettingsPortalService::GetInstance().GetAgentHomeMode());
@@ -346,6 +354,13 @@ void CustomLcdDisplay::UpdateStatusBar(bool update_all) {
     if (api_balance_changed) {
         ui_update_api_balance(api_balance.provider, api_balance.display);
         api_balance_generation_ = api_balance.generation;
+    }
+    if (electricity_changed) {
+        ui_update_electricity(electricity.building, electricity.room,
+                              electricity.remaining_kwh, electricity.used_kwh,
+                              electricity.configured, electricity.available,
+                              electricity.stale);
+        electricity_generation_ = electricity.generation;
     }
 }
 

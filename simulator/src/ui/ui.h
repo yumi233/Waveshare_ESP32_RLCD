@@ -33,13 +33,14 @@ void ui_init(void);
 void ui_show_dashboard(void);
 void ui_show_performance(void);
 void ui_show_syna(void);
+void ui_show_electricity(void);
 void ui_show_computers(void);
 void ui_toggle_page(void);
+void ui_cycle_mock_status(void);
 void ui_select_computer(int direction);
 int ui_confirm_computer(void);
 void ui_update_computer_list(const ui_computer_info_t *items, int count,
                              int current_index);
-void ui_cycle_mock_status(void);
 void ui_update_clock(void);
 void ui_update_environment(float temperature_c, float humidity_percent,
                            int battery_percent, bool environment_valid,
@@ -59,6 +60,9 @@ void ui_hide_assistant_overlay(void);
 void ui_update_syna_conversation(const char *user_text,
                                  const char *assistant_text);
 void ui_update_api_balance(const char *provider, const char *balance);
+void ui_update_electricity(int building, int room, float remaining_kwh,
+                           float used_kwh, bool configured, bool available,
+                           bool stale);
 void ui_update_todos(const ui_todo_item_t *items, int count);
 void ui_update_performance(float cpu_percent, float memory_percent,
                            float gpu_percent, bool gpu_valid,

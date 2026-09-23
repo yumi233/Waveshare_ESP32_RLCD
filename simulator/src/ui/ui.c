@@ -14,6 +14,7 @@ typedef enum {
     PAGE_DASHBOARD,
     PAGE_PERFORMANCE,
     PAGE_SYNA,
+    PAGE_ELECTRICITY,
     PAGE_COMPUTERS,
     PAGE_ABOUT,
 } page_t;
@@ -104,6 +105,12 @@ static lv_obj_t *dashboard_humidity_label;
 static lv_obj_t *dashboard_battery_label;
 static lv_obj_t *performance_battery_label;
 static lv_obj_t *syna_battery_label;
+static lv_obj_t *electricity_battery_label;
+static lv_obj_t *electricity_screen;
+static lv_obj_t *electricity_room_label;
+static lv_obj_t *electricity_balance_label;
+static lv_obj_t *electricity_usage_label;
+static lv_obj_t *electricity_status_label;
 static lv_obj_t *dashboard_wifi_status_image;
 static lv_obj_t *performance_wifi_status_image;
 static lv_obj_t *syna_wifi_status_image;
@@ -176,6 +183,13 @@ static char current_agent_task[96] = "Build visual simulator";
 static int agent_home_mode = 1;
 static bool quota_fill_valid[2] = {false, false};
 static performance_state_t current_performance_state;
+static int current_electricity_building;
+static int current_electricity_room;
+static float current_electricity_remaining;
+static float current_electricity_used;
+static bool current_electricity_configured;
+static bool current_electricity_available;
+static bool current_electricity_stale;
 
 static void style_screen(lv_obj_t *screen);
 static lv_obj_t *make_label(lv_obj_t *parent, const char *text, const lv_font_t *font,
@@ -212,7 +226,7 @@ static void update_battery_labels(void)
     }
 
     lv_obj_t *labels[] = {dashboard_battery_label, performance_battery_label,
-                          syna_battery_label};
+                          syna_battery_label, electricity_battery_label};
     for(size_t index = 0; index < sizeof(labels) / sizeof(labels[0]); ++index) {
         if(labels[index] != NULL && lv_obj_is_valid(labels[index]) &&
            strcmp(lv_label_get_text(labels[index]), value) != 0) {
@@ -517,6 +531,73 @@ static void make_editorial_shell(lv_obj_t *screen, const char *section)
     make_rule(screen, 18, 70, 364, 1);
     make_pixel_footer(screen);
     make_label(screen, "BAT", &ui_font_11_regular, 322, 270);
+}
+
+void ui_update_electricity(int building, int room, float remaining_kwh,
+                           float used_kwh, bool configured, bool available,
+                           bool stale)
+{
+    current_electricity_building = building;
+    current_electricity_room = room;
+    current_electricity_remaining = remaining_kwh;
+    current_electricity_used = used_kwh;
+    current_electricity_configured = configured;
+    current_electricity_available = available;
+    current_electricity_stale = stale;
+    if(electricity_screen == NULL) return;
+    char text[80];
+    if(configured) snprintf(text, sizeof(text), "%d 栋  /  %d 室", building, room);
+    else snprintf(text, sizeof(text), "请先设置宿舍");
+    lv_label_set_text(electricity_room_label, text);
+    if(available) {
+        snprintf(text, sizeof(text), "%.2f", remaining_kwh);
+        lv_label_set_text(electricity_balance_label, text);
+        snprintf(text, sizeof(text), "已用电量  %.1f 度", used_kwh);
+        lv_label_set_text(electricity_usage_label, text);
+    } else {
+        lv_label_set_text(electricity_balance_label, "--.--");
+        lv_label_set_text(electricity_usage_label,
+                          configured ? "查询失败或需要校园网" : "在设置页填写楼栋和房间");
+    }
+    lv_label_set_text(electricity_status_label,
+                      !configured ? "未配置" : stale ? "上次数据" :
+                      available ? "已更新" : "等待查询");
+}
+
+void ui_show_electricity(void)
+{
+    current_page = PAGE_ELECTRICITY;
+    sync_assistant_visibility();
+    if(electricity_screen != NULL) {
+        lv_screen_load(electricity_screen);
+        return;
+    }
+    lv_obj_t *screen = lv_obj_create(NULL);
+    electricity_screen = screen;
+    style_screen(screen);
+    make_editorial_shell(screen, "04 / 夏柠 · 用电");
+    make_label(screen, "WUYI UNIVERSITY  /  DORM", &ui_font_11_regular, 18, 44);
+    make_label(screen, "宿舍余电", &ui_font_14_cjk, 18, 81);
+    make_sparkle(screen, 368, 86);
+    electricity_room_label = make_label(screen, "", &ui_font_14_cjk, 18, 111);
+    electricity_status_label = make_label(screen, "", &ui_font_14_cjk, 292, 110);
+    lv_obj_set_size(electricity_status_label, 90, 22);
+    lv_obj_set_style_text_align(electricity_status_label, LV_TEXT_ALIGN_RIGHT, 0);
+    make_rule(screen, 18, 141, 364, 1);
+    make_label(screen, "REMAINING", &ui_font_11_regular, 18, 153);
+    electricity_balance_label = make_label(screen, "--.--", &lv_font_montserrat_42, 18, 175);
+    lv_obj_set_size(electricity_balance_label, 267, 54);
+    make_label(screen, "kWh / 度", &ui_font_14_cjk, 279, 205);
+    electricity_usage_label = make_label(screen, "", &ui_font_14_cjk, 18, 235);
+    lv_obj_set_size(electricity_usage_label, 340, 20);
+    electricity_battery_label = make_value_label(screen, &ui_font_11_regular,
+                                                  354, 268, 36, 18);
+    update_battery_labels();
+    ui_update_electricity(current_electricity_building, current_electricity_room,
+                          current_electricity_remaining, current_electricity_used,
+                          current_electricity_configured, current_electricity_available,
+                          current_electricity_stale);
+    lv_screen_load(screen);
 }
 
 void ui_show_dashboard(void)
@@ -1048,7 +1129,8 @@ void ui_toggle_page(void)
 {
     if(current_page == PAGE_DASHBOARD) ui_show_performance();
     else if(current_page == PAGE_PERFORMANCE) ui_show_syna();
-    else if(current_page == PAGE_SYNA) ui_show_about();
+    else if(current_page == PAGE_SYNA) ui_show_electricity();
+    else if(current_page == PAGE_ELECTRICITY) ui_show_about();
     else ui_show_dashboard();
 }
 
