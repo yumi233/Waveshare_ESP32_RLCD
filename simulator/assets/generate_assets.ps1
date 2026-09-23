@@ -484,7 +484,7 @@ foreach($pcStatus in $pcStatusDefinitions.GetEnumerator()) {
     --output $cAssetDir --name ui_screen_base (Join-Path $generatedDir 'screen_base.png')
 if($LASTEXITCODE -ne 0) { throw 'Could not convert the screen base to an LVGL image.' }
 & $python $lvglConverter --ofmt C --cf I1 --background 0xffffff --align 1 `
-    --output $cAssetDir --name ui_character_avatar (Join-Path $PSScriptRoot 'source\user_character\avatar-public-80.png')
+    --output $cAssetDir --name ui_character_avatar (Join-Path $PSScriptRoot 'source\user_character\avatar-user-selected-80.png')
 if($LASTEXITCODE -ne 0) { throw 'Could not convert the character avatar to an LVGL image.' }
 & $python $lvglConverter --ofmt C --cf I1 --background 0xffffff --align 1 `
     --output $cAssetDir --name ui_performance_base (Join-Path $generatedDir 'performance_base.png')

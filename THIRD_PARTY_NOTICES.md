@@ -18,7 +18,7 @@
 | 其他库及运行时 | 保留目录内原许可证；Reporter 分发还包含 Python、PyInstaller 及 requirements.txt 中依赖的授权 |
 | Syna UI 位图字体 | 数字/西文来自 Arimo，中文点阵来自 GNU Unifont 16.0.04，开机大字来自 Noto Sans CJK SC；统一按 SIL OFL 1.1 使用；见 simulator/assets/fonts/SOURCE.md 及对应许可证；不适用根目录 MIT |
 | 图标与背景 | 黑沐于 2026-09-13 确认自行制作；其原创部分按本项目 MIT 授权 |
-| 公开版头像 | 本仓库的 `avatar-public-80.png` 为本次重构绘制的原创几何像素图；本地使用的角色参考图和衍生头像未随仓库公开 |
+| 角色头像 | `avatar-user-selected-80.png` 是用户提供的《孤独摇滚！》后藤一里角色参考图的黑白像素转换版本；角色及相关图像不适用本项目 MIT 授权，其权利仍归相应权利人 |
 | 自定义唤醒词 | 配置词 ni hao xi na；底层为乐鑫 ESP-SR MultiNet7，模型不是黑沐原创；见 release/licenses/esp-sr-2.4.7-LICENSE.txt |
 
 小智许可证副本见 release/licenses/xiaozhi-MIT.txt。源码中原有授权头、许可证和 NOTICE 均保留。

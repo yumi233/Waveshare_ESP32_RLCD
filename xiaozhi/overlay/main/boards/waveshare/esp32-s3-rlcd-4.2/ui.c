@@ -102,6 +102,8 @@ static lv_obj_t *dashboard_clock_label;
 static lv_obj_t *performance_clock_label;
 static lv_obj_t *dashboard_temperature_label;
 static lv_obj_t *dashboard_humidity_label;
+static lv_obj_t *dashboard_electricity_label;
+static lv_obj_t *dashboard_electricity_title;
 static lv_obj_t *dashboard_battery_label;
 static lv_obj_t *performance_battery_label;
 static lv_obj_t *syna_battery_label;
@@ -544,6 +546,15 @@ void ui_update_electricity(int building, int room, float remaining_kwh,
     current_electricity_configured = configured;
     current_electricity_available = available;
     current_electricity_stale = stale;
+    if(dashboard_electricity_label != NULL) {
+        char compact[24];
+        if(available && remaining_kwh < 1000.0f)
+            snprintf(compact, sizeof(compact), "%.1f", remaining_kwh);
+        else if(available) snprintf(compact, sizeof(compact), "%.0f", remaining_kwh);
+        else snprintf(compact, sizeof(compact), "--");
+        lv_label_set_text(dashboard_electricity_label, compact);
+        lv_label_set_text(dashboard_electricity_title, stale ? "余电*/度" : "余电/度");
+    }
     if(electricity_screen == NULL) return;
     char text[80];
     if(configured) snprintf(text, sizeof(text), "%d 栋  /  %d 室", building, room);
@@ -617,8 +628,9 @@ void ui_show_dashboard(void)
     const computer_t *computer = &computers[current_computer];
 
     make_editorial_shell(screen, "01 / 夏柠 · 首页");
-    make_label(screen, "TEMP", &ui_font_11_regular, 229, 13);
-    make_label(screen, "HUM", &ui_font_11_regular, 330, 13);
+    make_label(screen, "TEMP", &ui_font_11_regular, 180, 27);
+    make_label(screen, "HUM", &ui_font_11_regular, 245, 27);
+    dashboard_electricity_title = make_label(screen, "余电/度", &ui_font_14_cjk, 312, 26);
     make_rule(screen, 17, 165, 166, 1);
     make_rule(screen, 193, 103, 187, 1);
     make_rule(screen, 193, 181, 187, 1);
@@ -635,13 +647,21 @@ void ui_show_dashboard(void)
     ui_update_clock();
 
     dashboard_temperature_label = make_value_label(screen, &ui_font_18_regular,
-                                                    229, 31, 58, 22);
+                                                    180, 44, 59, 22);
     dashboard_humidity_label = make_value_label(screen, &ui_font_18_regular,
-                                                 330, 31, 56, 22);
+                                                 245, 44, 57, 22);
+    dashboard_electricity_label = make_value_label(screen, &ui_font_18_regular,
+                                                    312, 44, 77, 22);
+    lv_label_set_text(dashboard_electricity_label, "--");
     dashboard_battery_label = make_value_label(screen, &ui_font_11_regular,
                                                 354, 268, 36, 18);
     lv_obj_set_style_text_align(dashboard_temperature_label, LV_TEXT_ALIGN_LEFT, 0);
     lv_obj_set_style_text_align(dashboard_humidity_label, LV_TEXT_ALIGN_LEFT, 0);
+    lv_obj_set_style_text_align(dashboard_electricity_label, LV_TEXT_ALIGN_LEFT, 0);
+    ui_update_electricity(current_electricity_building, current_electricity_room,
+                          current_electricity_remaining, current_electricity_used,
+                          current_electricity_configured, current_electricity_available,
+                          current_electricity_stale);
 
     dashboard_wifi_status_image = lv_image_create(screen);
     lv_image_set_src(dashboard_wifi_status_image, wifi_asset_for(current_wifi_state));
