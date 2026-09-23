@@ -1,6 +1,6 @@
 # 第三方版权与授权
 
-本项目是基于第三方组件的集成及定制项目。根目录 MIT 仅覆盖黑沐有权授权的原创代码及改动，
+本项目是基于第三方组件的集成及定制项目。根目录 MIT 仅覆盖黑沐及后续贡献者有权授权的原创代码和改动，
 不覆盖第三方代码和素材的原有权利。修改第三方文件时不得删除原版权声明。
 
 2026-09-16 实际构建核对见 [分发核对记录](docs/THIRD_PARTY_AUDIT.md)，
@@ -16,6 +16,7 @@
 | 其他库及运行时 | 保留目录内原许可证；Reporter 分发还包含 Python、PyInstaller 及 requirements.txt 中依赖的授权 |
 | Syna UI 位图字体 | 数字/西文来自 Arimo，中文点阵来自 GNU Unifont 16.0.04，开机大字来自 Noto Sans CJK SC；统一按 SIL OFL 1.1 使用；见 simulator/assets/fonts/SOURCE.md 及对应许可证；不适用根目录 MIT |
 | 图标与背景 | 黑沐于 2026-09-13 确认自行制作；其原创部分按本项目 MIT 授权 |
+| 公开版头像 | 本仓库的 `avatar-public-80.png` 为本次重构绘制的原创几何像素图；本地使用的角色参考图和衍生头像未随仓库公开 |
 | 自定义唤醒词 | 配置词 ni hao xi na；底层为乐鑫 ESP-SR MultiNet7，模型不是黑沐原创；见 release/licenses/esp-sr-2.4.7-LICENSE.txt |
 
 小智许可证副本见 release/licenses/xiaozhi-MIT.txt。源码中原有授权头、许可证和 NOTICE 均保留。

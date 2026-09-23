@@ -4,8 +4,13 @@
 
 ## 当前页面
 
-- 桌面状态首页：按用户提供的 400×300 音乐状态屏参考稿像素级重做，包含时间、温湿度、AI Agent 状态、Codex 额度、当前歌曲、歌手、播放进度和单句歌词；原播放按钮区域只显示当前歌词。
-- 电脑列表：采用与首页一致的圆角卡片、像素字体和紧凑间距，模拟发现三台电脑、选择当前电脑以及在线/离线状态；选中项使用加粗圆角边框。
+- 首页：波奇酱头像、时间、温湿度、Agent 状态、可切换的任务和额度，以及媒体信息。
+- 性能：资源占用、温度、网络延迟与流量走势。
+- 夏柠：最近对话、待办和 API 余额。
+- 电脑列表：发现、选择和连接 Reporter 电脑。
+- 关于：原项目作者黑沐、界面重构者玉米及开源许可说明。
+
+五页采用 400×300 单色编辑式排版。前三区使用实时 LVGL 文本、细分隔线和留白；底图资源保留供旧版布局参考，不参与当前页面绘制。
 
 ## 运行
 
@@ -17,6 +22,16 @@
 
 模拟器以 2 倍比例显示，逻辑分辨率始终保持 400×300。
 
+当前 Mac 的 LVGL 9.5.0 依赖保存在 1T 盘的 `toolchains/lvgl-9.5.0/`，`simulator/vendor/lvgl-9.5.0` 指向该目录。在项目根目录可运行：
+
+```sh
+cmake -S simulator -B simulator/build-mac -DCMAKE_PREFIX_PATH=/opt/homebrew/opt/sdl2-compat
+cmake --build simulator/build-mac -j 6
+simulator/build-mac/bin/ai_panel_simulator
+```
+
+截图时可设置 `AI_PANEL_SCREENSHOT_PATH`、`AI_PANEL_SCREENSHOT_DELAY_MS=4800` 和 `AI_PANEL_AUTOCLOSE_MS=6500`。使用 `AI_PANEL_START_PAGE=dashboard|performance|syna|computers|about` 逐页预览；`AI_PANEL_AGENT_MODE=quotas` 或 `task` 预览首页另外两种 Agent 模式；默认是当前任务加每周额度。
+
 首次构建会编译 LVGL，后续只会增量编译发生变化的文件。需要清空 CMake 配置缓存时可执行：
 
 ```powershell
@@ -27,7 +42,7 @@
 
 | 按键 | 功能 |
 | --- | --- |
-| `Space` | 在状态首页和电脑性能页之间切换 |
+| `Space` | 首页、性能、夏柠、关于之间循环 |
 | `C` | 打开电脑列表 |
 | `↑` / `↓` | 选择电脑 |
 | `Enter` | 确认当前电脑并返回首页 |

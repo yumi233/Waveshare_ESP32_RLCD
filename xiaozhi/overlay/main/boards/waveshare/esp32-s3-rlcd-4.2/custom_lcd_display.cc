@@ -16,6 +16,7 @@
 #include "reporter_service.h"
 #include "todo_service.h"
 #include "api_balance_service.h"
+#include "settings_portal_service.h"
 #include "environment_service.h"
 #include "ui.h"
 
@@ -151,6 +152,7 @@ void CustomLcdDisplay::SetupUI() {
     Display::SetupUI();
     DisplayLockGuard lock(this);
     ui_init();
+    ui_set_agent_home_mode(SettingsPortalService::GetInstance().GetAgentHomeMode());
     ui_update_agent_state("OFFLINE");
     ui_update_api_balance("API", "--");
     ui_update_codex_quota(-1, -1, false, false);
@@ -219,10 +221,10 @@ void CustomLcdDisplay::SetStatus(const char *status) {
     DisplayLockGuard lock(this);
     switch (Application::GetInstance().GetDeviceState()) {
         case kDeviceStateListening:
-            ui_show_assistant_overlay("Syna-sama", "正在聆听…");
+            ui_show_assistant_overlay("夏柠", "正在聆听…");
             break;
         case kDeviceStateSpeaking:
-            ui_show_assistant_overlay("Syna-sama", "正在回答…");
+            ui_show_assistant_overlay("夏柠", "正在回答…");
             break;
         case kDeviceStateIdle:
             ui_hide_assistant_overlay();
@@ -243,7 +245,7 @@ void CustomLcdDisplay::SetChatMessage(const char *role, const char *content) {
         ui_show_assistant_overlay("你", content);
     } else if (strcmp(role, "assistant") == 0) {
         ui_update_syna_conversation(nullptr, content);
-        ui_show_assistant_overlay("Syna-sama", content);
+        ui_show_assistant_overlay("夏柠", content);
     }
 }
 
@@ -286,6 +288,7 @@ void CustomLcdDisplay::UpdateStatusBar(bool update_all) {
         api_balance.generation != api_balance_generation_;
 
     DisplayLockGuard lock(this);
+    ui_set_agent_home_mode(SettingsPortalService::GetInstance().GetAgentHomeMode());
     ui_update_clock();
     ui_update_wifi_state(wifi_state);
     ui_update_environment(temperature_c, humidity_percent, battery_level,
@@ -307,6 +310,7 @@ void CustomLcdDisplay::UpdateStatusBar(bool update_all) {
         const PanelReporterMetrics& metrics = reporter.metrics;
         ui_update_pc_connected(metrics.connected);
         ui_update_agent_state(metrics.connected ? metrics.agent_state : "OFFLINE");
+        ui_update_agent_task(metrics.connected ? metrics.agent_task : "");
         ui_update_codex_quota(metrics.codex_short_remaining,
                               metrics.codex_week_remaining,
                               metrics.connected, metrics.codex_quota_stale);

@@ -90,7 +90,7 @@ private:
         ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_bus_cfg, &i2c_bus_));
     }
 
-    void InitializeButtons() { 
+    void InitializeButtons() {
         boot_button_.OnPressDown([this]() {
             if (panel_buttons_.Idle()) settings_combo_triggered_ = false;
             panel_buttons_.BootDown();
@@ -161,7 +161,7 @@ private:
         });
         mcp_server.AddTool(
             "self.panel.show_page",
-            "切换状态屏页面。page 使用 dashboard（主页）、performance（电脑性能）、syna（Syna-sama 对话和待办）或 computers（电脑选择）。",
+            "切换状态屏页面。page 使用 dashboard（主页）、performance（电脑性能）、syna（夏柠对话和待办）或 computers（电脑选择）。",
             PropertyList({Property("page", kPropertyTypeString)}),
             [this](const PropertyList& properties) -> ReturnValue {
                 const std::string requested =
@@ -257,13 +257,13 @@ private:
                 .unit_id = ADC_UNIT_1,
             };
             adc_oneshot_new_unit(&init_config, &adc_handle);
-    
+
             adc_oneshot_chan_cfg_t ch_config = {
                 .atten = ADC_ATTEN_DB_12,
                 .bitwidth = ADC_BITWIDTH_12,
             };
             adc_oneshot_config_channel(adc_handle, ADC_CHANNEL_3, &ch_config);
-    
+
             adc_cali_curve_fitting_config_t cali_config = {
                 .unit_id = ADC_UNIT_1,
                 .atten = ADC_ATTEN_DB_12,
@@ -313,9 +313,9 @@ public:
             .skip_unhandled_events = true,
         };
         ESP_ERROR_CHECK(esp_timer_create(&timer_args, &factory_reset_timer_));
-        InitializeI2c();  
+        InitializeI2c();
         EnvironmentService::GetInstance().Initialize(i2c_bus_);
-        InitializeButtons();     
+        InitializeButtons();
         InitializeTools();
         InitializeLcdDisplay();
         if (!ReporterService::GetInstance().Start()) {
@@ -329,17 +329,17 @@ public:
     virtual AudioCodec* GetAudioCodec() override {
         ESP_LOGI(TAG, "ES7210 microphone gain: %.1f dB", (double)AUDIO_INPUT_GAIN_DB);
         static BoxAudioCodec audio_codec(
-            i2c_bus_, 
-            AUDIO_INPUT_SAMPLE_RATE, 
+            i2c_bus_,
+            AUDIO_INPUT_SAMPLE_RATE,
             AUDIO_OUTPUT_SAMPLE_RATE,
-            AUDIO_I2S_GPIO_MCLK, 
-            AUDIO_I2S_GPIO_BCLK, 
-            AUDIO_I2S_GPIO_WS, 
-            AUDIO_I2S_GPIO_DOUT, 
+            AUDIO_I2S_GPIO_MCLK,
+            AUDIO_I2S_GPIO_BCLK,
+            AUDIO_I2S_GPIO_WS,
+            AUDIO_I2S_GPIO_DOUT,
             AUDIO_I2S_GPIO_DIN,
-            AUDIO_CODEC_PA_PIN, 
-            AUDIO_CODEC_ES8311_ADDR, 
-            AUDIO_CODEC_ES7210_ADDR, 
+            AUDIO_CODEC_PA_PIN,
+            AUDIO_CODEC_ES8311_ADDR,
+            AUDIO_CODEC_ES7210_ADDR,
             AUDIO_INPUT_REFERENCE,
             AUDIO_INPUT_GAIN_DB);
         return &audio_codec;

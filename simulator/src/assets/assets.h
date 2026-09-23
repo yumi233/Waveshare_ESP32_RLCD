@@ -4,6 +4,7 @@
 #include "lvgl.h"
 
 LV_IMAGE_DECLARE(ui_screen_base);
+LV_IMAGE_DECLARE(ui_character_avatar);
 LV_IMAGE_DECLARE(ui_performance_base);
 LV_IMAGE_DECLARE(ui_syna_base);
 LV_IMAGE_DECLARE(ui_syna_wallet);

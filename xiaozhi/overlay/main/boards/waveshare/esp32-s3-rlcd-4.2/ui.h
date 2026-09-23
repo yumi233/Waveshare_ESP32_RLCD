@@ -46,6 +46,8 @@ void ui_update_environment(float temperature_c, float humidity_percent,
 void ui_update_wifi_state(ui_wifi_state_t state);
 void ui_update_pc_connected(bool connected);
 void ui_update_agent_state(const char *state);
+void ui_update_agent_task(const char *task);
+void ui_set_agent_home_mode(int mode);
 void ui_update_codex_quota(int short_remaining_percent,
                            int week_remaining_percent, bool connected, bool stale);
 void ui_update_media(bool available, const char *status, const char *title,

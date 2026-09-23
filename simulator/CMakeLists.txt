@@ -23,6 +23,7 @@ add_executable(ai_panel_simulator
     src/main.c
     src/ui/ui.c
     src/assets/ui_screen_base.c
+    src/assets/ui_character_avatar.c
     src/assets/ui_performance_base.c
     src/assets/ui_syna_base.c
     src/assets/ui_syna_wallet.c
@@ -44,6 +45,7 @@ add_executable(ai_panel_simulator
     src/assets/ui_font_11_regular.c
     src/assets/ui_font_14_regular.c
     src/assets/ui_font_14_cjk.c
+    src/assets/ui_font_28_brand.c
 )
 
 target_include_directories(ai_panel_simulator PRIVATE src)

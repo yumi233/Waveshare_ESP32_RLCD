@@ -313,6 +313,10 @@ void ReporterService::ParseDiscovery(const char* payload, size_t length,
                     sizeof(endpoint.agent_state))) {
         CopyUtf8(endpoint.agent_state, sizeof(endpoint.agent_state), "IDLE");
     }
+    if (!JsonString(root, "agent_task", endpoint.agent_task,
+                    sizeof(endpoint.agent_task))) {
+        endpoint.agent_task[0] = '\0';
+    }
     for (char* cursor = endpoint.agent_state; *cursor != '\0'; ++cursor) {
         *cursor = static_cast<char>(std::toupper(static_cast<unsigned char>(*cursor)));
     }
@@ -348,6 +352,7 @@ void ReporterService::ParseDiscovery(const char* payload, size_t length,
         CopyUtf8(metrics.computer_name, sizeof(metrics.computer_name),
                  endpoint.computer_name);
         CopyUtf8(metrics.agent_state, sizeof(metrics.agent_state), endpoint.agent_state);
+        CopyUtf8(metrics.agent_task, sizeof(metrics.agent_task), endpoint.agent_task);
         metrics.codex_short_remaining = endpoint.codex_short_remaining;
         metrics.codex_week_remaining = endpoint.codex_week_remaining;
         metrics.codex_quota_stale = endpoint.codex_quota_stale;

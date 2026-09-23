@@ -111,6 +111,13 @@ static lv_obj_t *dashboard_pc_status_image;
 static lv_obj_t *performance_pc_status_image;
 static lv_obj_t *syna_pc_status_image;
 static lv_obj_t *dashboard_agent_status_image;
+static lv_obj_t *dashboard_agent_login_label;
+static lv_obj_t *dashboard_short_quota_title;
+static lv_obj_t *dashboard_week_quota_title;
+static lv_obj_t *dashboard_short_quota_track;
+static lv_obj_t *dashboard_week_quota_track;
+static lv_obj_t *dashboard_agent_task_title;
+static lv_obj_t *dashboard_agent_task_label;
 static lv_obj_t *dashboard_short_quota_label;
 static lv_obj_t *dashboard_week_quota_label;
 static lv_obj_t *dashboard_short_quota_fill;
@@ -147,11 +154,12 @@ static lv_obj_t *computer_rows[COMPUTER_ROWS_VISIBLE];
 static lv_obj_t *computer_name_labels[COMPUTER_ROWS_VISIBLE];
 static lv_obj_t *computer_state_labels[COMPUTER_ROWS_VISIBLE];
 static lv_obj_t *computer_current_labels[COMPUTER_ROWS_VISIBLE];
+static lv_obj_t *computer_selection_markers[COMPUTER_ROWS_VISIBLE];
 static lv_obj_t *computer_found_label;
 static lv_obj_t *assistant_overlay;
 static lv_obj_t *assistant_overlay_label;
 static bool assistant_active = false;
-static char assistant_state[32] = "Syna-sama";
+static char assistant_state[32] = "夏柠";
 static char assistant_text[192] = "正在聆听…";
 static char current_syna_user[160] = "";
 static char current_syna_assistant[192] = "";
@@ -164,6 +172,9 @@ static bool current_pc_connected = false;
 static int current_battery_percent = -1;
 static bool current_battery_valid = false;
 static char current_agent_state[16] = "WORKING";
+static char current_agent_task[96] = "Build visual simulator";
+static int agent_home_mode = 1;
+static bool quota_fill_valid[2] = {false, false};
 static performance_state_t current_performance_state;
 
 static void style_screen(lv_obj_t *screen);
@@ -185,6 +196,7 @@ static void computer_row_clicked(lv_event_t *event);
 static void sync_assistant_visibility(void);
 static void refresh_syna_conversation(void);
 static void refresh_syna_todos(void);
+static void refresh_agent_home(void);
 
 static void update_battery_labels(void)
 {
@@ -226,12 +238,12 @@ static int network_chart_value(float upload_mb_per_second,
 static void ensure_assistant_overlay(void)
 {
     if(assistant_overlay != NULL && lv_obj_is_valid(assistant_overlay)) return;
-    assistant_overlay = make_panel(lv_layer_top(), 10, 237, 380, 54);
-    lv_obj_set_style_border_width(assistant_overlay, 2, 0);
-    lv_obj_set_style_radius(assistant_overlay, 10, 0);
+    assistant_overlay = make_panel(lv_layer_top(), 18, 231, 364, 52);
+    lv_obj_set_style_border_width(assistant_overlay, 1, 0);
+    lv_obj_set_style_radius(assistant_overlay, 0, 0);
     assistant_overlay_label = make_label(
-        assistant_overlay, "小智  正在聆听…", &ui_font_14_cjk, 12, 16);
-    lv_obj_set_size(assistant_overlay_label, 354, 22);
+        assistant_overlay, "夏柠  正在聆听…", &ui_font_14_cjk, 10, 14);
+    lv_obj_set_size(assistant_overlay_label, 342, 22);
     lv_label_set_long_mode(assistant_overlay_label, LV_LABEL_LONG_CLIP);
     lv_obj_add_flag(assistant_overlay, LV_OBJ_FLAG_HIDDEN);
 }
@@ -241,7 +253,7 @@ void ui_show_assistant_overlay(const char *state, const char *text)
     ensure_assistant_overlay();
     assistant_active = true;
     char line[256];
-    const char *prefix = (state != NULL && state[0] != '\0') ? state : "Syna-sama";
+    const char *prefix = (state != NULL && state[0] != '\0') ? state : "夏柠";
     const char *message = (text != NULL && text[0] != '\0') ? text : "正在聆听…";
     snprintf(assistant_state, sizeof(assistant_state), "%s", prefix);
     snprintf(assistant_text, sizeof(assistant_text), "%s", message);
@@ -351,7 +363,7 @@ static lv_obj_t *make_performance_fill(lv_obj_t *parent, int32_t y, int percent)
     lv_obj_remove_flag(fill, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_pos(fill, 18, y);
     lv_obj_set_size(fill, (150 * percent) / 100, 9);
-    lv_obj_set_style_radius(fill, 0, 0);
+    lv_obj_set_style_radius(fill, 3, 0);
     lv_obj_set_style_border_width(fill, 0, 0);
     lv_obj_set_style_pad_all(fill, 0, 0);
     lv_obj_set_style_bg_color(fill, COLOR_BLACK, 0);
@@ -412,6 +424,101 @@ static lv_obj_t *make_white_mask(lv_obj_t *parent, int x, int y, int width, int 
     return mask;
 }
 
+static lv_obj_t *make_rule(lv_obj_t *parent, int x, int y, int width, int height)
+{
+    lv_obj_t *rule = make_white_mask(parent, x, y, width, height);
+    lv_obj_set_style_bg_color(rule, COLOR_BLACK, 0);
+    return rule;
+}
+
+static void make_sparkle(lv_obj_t *parent, int x, int y)
+{
+    make_rule(parent, x + 4, y, 1, 2);
+    make_rule(parent, x + 2, y + 2, 1, 1);
+    make_rule(parent, x + 6, y + 2, 1, 1);
+    make_rule(parent, x, y + 4, 9, 1);
+    make_rule(parent, x + 2, y + 6, 1, 1);
+    make_rule(parent, x + 6, y + 6, 1, 1);
+    make_rule(parent, x + 4, y + 7, 1, 2);
+}
+
+static void make_heart(lv_obj_t *parent, int x, int y)
+{
+    static const char *rows[] = {
+        "01100110", "11111111", "11111111",
+        "01111110", "00111100", "00011000",
+    };
+    for(int row = 0; row < 6; ++row) {
+        int col = 0;
+        while(col < 8) {
+            if(rows[row][col] != '1') { ++col; continue; }
+            const int start = col;
+            while(col < 8 && rows[row][col] == '1') ++col;
+            make_rule(parent, x + start * 2, y + row * 2,
+                      (col - start) * 2, 2);
+        }
+    }
+}
+
+/* One-bit, original pixel ornaments: solid strokes stay crisp on e-paper. */
+static void make_pixel_frame(lv_obj_t *parent, int x, int y, int w, int h)
+{
+    make_rule(parent, x + 7, y, w - 14, 1);
+    make_rule(parent, x + 7, y + h - 1, w - 14, 1);
+    make_rule(parent, x, y + 7, 1, h - 14);
+    make_rule(parent, x + w - 1, y + 7, 1, h - 14);
+    make_rule(parent, x + 3, y + 3, 5, 1);
+    make_rule(parent, x + 3, y + 3, 1, 5);
+    make_rule(parent, x + w - 8, y + 3, 5, 1);
+    make_rule(parent, x + w - 4, y + 3, 1, 5);
+    make_rule(parent, x + 3, y + h - 4, 5, 1);
+    make_rule(parent, x + 3, y + h - 8, 1, 5);
+    make_rule(parent, x + w - 8, y + h - 4, 5, 1);
+    make_rule(parent, x + w - 4, y + h - 8, 1, 5);
+    make_rule(parent, x + 11, y + 3, 3, 2);
+    make_rule(parent, x + w - 14, y + 3, 3, 2);
+    make_rule(parent, x + 11, y + h - 5, 3, 2);
+    make_rule(parent, x + w - 14, y + h - 5, 3, 2);
+}
+
+static void make_pixel_sprig(lv_obj_t *parent, int x, int y)
+{
+    make_rule(parent, x + 7, y + 7, 2, 11);
+    make_rule(parent, x + 2, y + 2, 5, 2);
+    make_rule(parent, x, y + 4, 5, 2);
+    make_rule(parent, x + 2, y + 6, 5, 2);
+    make_rule(parent, x + 9, y, 5, 2);
+    make_rule(parent, x + 11, y + 2, 5, 2);
+    make_rule(parent, x + 9, y + 4, 5, 2);
+    make_rule(parent, x + 5, y + 17, 6, 1);
+}
+
+static void make_pixel_ribbon(lv_obj_t *parent, const char *title)
+{
+    make_rule(parent, 13, 5, 185, 18);
+    make_rule(parent, 10, 8, 3, 12);
+    make_rule(parent, 198, 8, 3, 12);
+    lv_obj_t *label = make_label(parent, title, &ui_font_14_cjk, 19, 6);
+    lv_obj_set_style_text_color(label, COLOR_WHITE, 0);
+    make_rule(parent, 21, 18, 5, 1);
+    make_rule(parent, 185, 18, 5, 1);
+}
+
+static void make_pixel_footer(lv_obj_t *parent)
+{
+    make_rule(parent, 18, 258, 364, 1);
+    make_rule(parent, 18, 261, 8, 1);
+    make_rule(parent, 374, 261, 8, 1);
+}
+
+static void make_editorial_shell(lv_obj_t *screen, const char *section)
+{
+    make_pixel_ribbon(screen, section);
+    make_rule(screen, 18, 70, 364, 1);
+    make_pixel_footer(screen);
+    make_label(screen, "BAT", &ui_font_11_regular, 322, 270);
+}
+
 void ui_show_dashboard(void)
 {
     current_page = PAGE_DASHBOARD;
@@ -428,14 +535,22 @@ void ui_show_dashboard(void)
     style_screen(screen);
     const computer_t *computer = &computers[current_computer];
 
-    lv_obj_t *base = lv_image_create(screen);
-    lv_image_set_src(base, &ui_screen_base);
-    lv_obj_set_pos(base, 0, 0);
+    make_editorial_shell(screen, "01 / 夏柠 · 首页");
+    make_label(screen, "TEMP", &ui_font_11_regular, 229, 13);
+    make_label(screen, "HUM", &ui_font_11_regular, 330, 13);
+    make_rule(screen, 17, 165, 166, 1);
+    make_rule(screen, 193, 103, 187, 1);
+    make_rule(screen, 193, 181, 187, 1);
+    make_label(screen, "NOW PLAYING", &ui_font_11_regular, 193, 81);
+    make_sparkle(screen, 370, 81);
+    lv_obj_t *portrait_frame = make_panel(screen, 16, 78, 82, 82);
+    lv_obj_set_style_radius(portrait_frame, 0, 0);
+    make_label(screen, "♪", &ui_font_14_cjk, 193, 113);
+    make_heart(screen, 365, 237);
 
-    clock_label = make_label(screen, "--:--", &lv_font_montserrat_42, 40, 9);
+    clock_label = make_label(screen, "--:--", &lv_font_montserrat_42, 18, 24);
     dashboard_clock_label = clock_label;
-    lv_obj_set_width(clock_label, 129);
-    lv_obj_set_style_text_align(clock_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_width(clock_label, 150);
     ui_update_clock();
 
     dashboard_temperature_label = make_value_label(screen, &ui_font_18_regular,
@@ -449,48 +564,42 @@ void ui_show_dashboard(void)
 
     dashboard_wifi_status_image = lv_image_create(screen);
     lv_image_set_src(dashboard_wifi_status_image, wifi_asset_for(current_wifi_state));
-    lv_obj_set_pos(dashboard_wifi_status_image, 46, 270);
+    lv_obj_set_pos(dashboard_wifi_status_image, 18, 270);
     dashboard_pc_status_image = lv_image_create(screen);
     lv_image_set_src(dashboard_pc_status_image, pc_asset_for(current_pc_connected));
-    lv_obj_set_pos(dashboard_pc_status_image, 236, 270);
+    lv_obj_set_pos(dashboard_pc_status_image, 205, 270);
 
-    /* The reference background contains the original WORKING block. Keep an
-     * opaque white layer below the dynamic status image so a hidden DONE image
-     * flashes to white instead of revealing that baked-in block. */
-    lv_obj_t *agent_status_mask = lv_obj_create(screen);
-    lv_obj_remove_flag(agent_status_mask, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_pos(agent_status_mask, 46, 108);
-    lv_obj_set_size(agent_status_mask, 88, 29);
-    lv_obj_set_style_radius(agent_status_mask, 0, 0);
-    lv_obj_set_style_border_width(agent_status_mask, 0, 0);
-    lv_obj_set_style_pad_all(agent_status_mask, 0, 0);
-    lv_obj_set_style_bg_color(agent_status_mask, COLOR_WHITE, 0);
-    lv_obj_set_style_bg_opa(agent_status_mask, LV_OPA_COVER, 0);
-
+    /* Keep all live Agent content inside the blank left card. */
+    lv_obj_t *avatar = lv_image_create(screen);
+    lv_image_set_src(avatar, &ui_character_avatar);
+    lv_obj_set_pos(avatar, 17, 79);
+    make_label(screen, "AI AGENT", &ui_font_14_regular, 101, 88);
     dashboard_agent_status_image = lv_image_create(screen);
     lv_image_set_src(dashboard_agent_status_image,
                      status_asset_for(current_agent_state));
-    lv_obj_set_pos(dashboard_agent_status_image, 46, 108);
-
-    make_white_mask(screen, 221, 81, 78, 20);
-    make_white_mask(screen, 255, 115, 127, 23);
-    make_white_mask(screen, 276, 140, 106, 20);
-    make_white_mask(screen, 268, 176, 9, 10);
-    make_white_mask(screen, 192, 188, 43, 17);
-    make_white_mask(screen, 347, 188, 37, 17);
-    make_white_mask(screen, 190, 212, 192, 34);
+    lv_obj_set_pos(dashboard_agent_status_image, 99, 115);
+    dashboard_agent_login_label = make_label(
+        screen, "请登录", &ui_font_14_cjk, 99, 120);
+    lv_obj_set_size(dashboard_agent_login_label, 88, 20);
+    lv_obj_set_style_text_align(dashboard_agent_login_label, LV_TEXT_ALIGN_CENTER, 0);
+    if(strcmp(current_agent_state, "LOGIN_REQUIRED") == 0) {
+        lv_obj_add_flag(dashboard_agent_status_image, LV_OBJ_FLAG_HIDDEN);
+    }
+    else {
+        lv_obj_add_flag(dashboard_agent_login_label, LV_OBJ_FLAG_HIDDEN);
+    }
 
     dashboard_media_status_label = make_label(
-        screen, "未播放", &ui_font_14_cjk, 222, 82);
+        screen, "未播放", &ui_font_14_cjk, 304, 80);
     lv_obj_set_size(dashboard_media_status_label, 77, 18);
     dashboard_media_title_label = make_label(
-        screen, "网易云音乐", &ui_font_14_cjk, 257, 116);
+        screen, "网易云音乐", &ui_font_14_cjk, 216, 113);
     lv_label_set_long_mode(dashboard_media_title_label, LV_LABEL_LONG_CLIP);
-    lv_obj_set_size(dashboard_media_title_label, 124, 18);
+    lv_obj_set_size(dashboard_media_title_label, 165, 18);
     dashboard_media_artist_label = make_label(
-        screen, "--", &ui_font_14_cjk, 277, 141);
+        screen, "--", &ui_font_14_cjk, 216, 139);
     lv_label_set_long_mode(dashboard_media_artist_label, LV_LABEL_LONG_CLIP);
-    lv_obj_set_size(dashboard_media_artist_label, 104, 18);
+    lv_obj_set_size(dashboard_media_artist_label, 165, 18);
     dashboard_media_position_label = make_label(
         screen, "--:--", &ui_font_11_regular, 193, 189);
     dashboard_media_duration_label = make_label(
@@ -503,17 +612,6 @@ void ui_show_dashboard(void)
     lv_obj_set_size(dashboard_media_lyric_label, 190, 20);
     lv_obj_set_style_text_align(dashboard_media_lyric_label, LV_TEXT_ALIGN_CENTER, 0);
 
-    for(int dot = 0; dot < 3; ++dot) {
-        lv_obj_t *progress_patch = lv_obj_create(screen);
-        lv_obj_remove_flag(progress_patch, LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_set_pos(progress_patch, 269 + dot * 3, 180);
-        lv_obj_set_size(progress_patch, 2, 1);
-        lv_obj_set_style_radius(progress_patch, 0, 0);
-        lv_obj_set_style_border_width(progress_patch, 0, 0);
-        lv_obj_set_style_pad_all(progress_patch, 0, 0);
-        lv_obj_set_style_bg_color(progress_patch, COLOR_BLACK, 0);
-        lv_obj_set_style_bg_opa(progress_patch, LV_OPA_COVER, 0);
-    }
     dashboard_media_progress_knob = lv_obj_create(screen);
     lv_obj_remove_flag(dashboard_media_progress_knob, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_pos(dashboard_media_progress_knob, 191, 178);
@@ -524,8 +622,8 @@ void ui_show_dashboard(void)
     lv_obj_set_style_bg_color(dashboard_media_progress_knob, COLOR_BLACK, 0);
     lv_obj_set_style_bg_opa(dashboard_media_progress_knob, LV_OPA_COVER, 0);
 
-    char short_quota[8];
-    char week_quota[8];
+    char short_quota[24];
+    char week_quota[24];
     if(computer->codex_short_percent >= 0) {
         snprintf(short_quota, sizeof(short_quota), "%d%%", computer->codex_short_percent);
         snprintf(week_quota, sizeof(week_quota), "%d%%", computer->codex_week_percent);
@@ -535,21 +633,36 @@ void ui_show_dashboard(void)
         snprintf(week_quota, sizeof(week_quota), "--");
     }
 
+    /* All three home layouts are composed from live LVGL objects. */
+    dashboard_short_quota_title = make_label(
+        screen, "5小时额度", &ui_font_14_cjk, 17, 170);
+    dashboard_week_quota_title = make_label(
+        screen, "周额度", &ui_font_14_cjk, 17, 211);
+    dashboard_short_quota_track = make_panel(screen, 17, 190, 146, 14);
+    dashboard_week_quota_track = make_panel(screen, 17, 231, 146, 14);
+    lv_obj_set_style_radius(dashboard_short_quota_track, 0, 0);
+    lv_obj_set_style_radius(dashboard_week_quota_track, 0, 0);
     dashboard_short_quota_fill = make_progress_fill(
-        screen, 179, computer->codex_short_percent);
+        screen, 192, computer->codex_short_percent);
     dashboard_week_quota_fill = make_progress_fill(
-        screen, 222, computer->codex_week_percent);
+        screen, 233, computer->codex_week_percent);
     dashboard_short_quota_label = make_label(
-        screen, short_quota, &ui_font_18_regular, 106, 156);
+        screen, short_quota, &ui_font_18_regular, 106, 169);
     lv_obj_set_size(dashboard_short_quota_label, 57, 22);
     lv_label_set_long_mode(dashboard_short_quota_label, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_align(dashboard_short_quota_label, LV_TEXT_ALIGN_RIGHT, 0);
-
     dashboard_week_quota_label = make_label(
-        screen, week_quota, &ui_font_18_regular, 106, 199);
+        screen, week_quota, &ui_font_18_regular, 106, 210);
     lv_obj_set_size(dashboard_week_quota_label, 57, 22);
     lv_label_set_long_mode(dashboard_week_quota_label, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_align(dashboard_week_quota_label, LV_TEXT_ALIGN_RIGHT, 0);
+    dashboard_agent_task_title = make_label(
+        screen, "当前任务", &ui_font_14_cjk, 17, 170);
+    dashboard_agent_task_label = make_label(
+        screen, current_agent_task, &ui_font_14_cjk, 17, 190);
+    lv_obj_set_size(dashboard_agent_task_label, 146, 35);
+    lv_label_set_long_mode(dashboard_agent_task_label, LV_LABEL_LONG_WRAP);
+    refresh_agent_home();
     lv_screen_load(screen);
 }
 
@@ -567,15 +680,24 @@ void ui_show_performance(void)
     lv_obj_t *screen = lv_obj_create(NULL);
     performance_screen = screen;
     style_screen(screen);
-    lv_obj_t *base = lv_image_create(screen);
-    lv_image_set_src(base, &ui_performance_base);
-    lv_obj_set_pos(base, 0, 0);
+    make_editorial_shell(screen, "02 / 夏柠 · 性能");
+    make_label(screen, "CPU TEMP", &ui_font_11_regular, 200, 13);
+    make_label(screen, "GPU TEMP", &ui_font_11_regular, 318, 13);
+    make_label(screen, "RESOURCE LOAD", &ui_font_11_regular, 18, 80);
+    make_label(screen, "NETWORK / LIVE", &ui_font_11_regular, 200, 80);
+    make_sparkle(screen, 372, 82);
+    make_rule(screen, 18, 101, 150, 1);
+    make_rule(screen, 200, 101, 182, 1);
+    make_rule(screen, 184, 80, 1, 168);
+    make_label(screen, "PING", &ui_font_11_regular, 200, 124);
+    make_label(screen, "UPLOAD", &ui_font_11_regular, 200, 146);
+    make_label(screen, "DOWNLOAD", &ui_font_11_regular, 200, 168);
+    make_rule(screen, 200, 185, 182, 1);
 
-    clock_label = make_label(screen, "--:--", &lv_font_montserrat_38, 47, 8);
+    clock_label = make_label(screen, "--:--", &lv_font_montserrat_38, 18, 24);
     performance_clock_label = clock_label;
     lv_label_set_long_mode(clock_label, LV_LABEL_LONG_CLIP);
-    lv_obj_set_size(clock_label, 108, 44);
-    lv_obj_set_style_text_align(clock_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_size(clock_label, 150, 44);
     ui_update_clock();
 
     performance_temperature_labels[0] =
@@ -586,21 +708,13 @@ void ui_show_performance(void)
     lv_obj_set_style_text_align(performance_temperature_labels[1], LV_TEXT_ALIGN_LEFT, 0);
 
     const int usage[] = {38, 67, 42, 15};
-    const int bar_y[] = {119, 158, 198, 237};
-    const int label_y[] = {94, 134, 173, 213};
-    // The metric names are baked into the base image. Move only their ink
-    // rectangles, preserving the original glyphs and stationary bar outlines.
-    const int name_y[] = {106, 146, 185, 224};
-    const int name_height[] = {8, 9, 8, 9};
+    const int bar_y[] = {129, 168, 207, 246};
+    const int label_y[] = {105, 144, 183, 222};
+    const char *metric_names[] = {"CPU", "MEMORY", "GPU", "DISK"};
     for(int i = 0; i < 4; ++i) {
-        lv_obj_t *mask = make_white_mask(screen, 17, name_y[i] - 2,
-                                         68, name_height[i] + 2);
-        lv_obj_t *clip = make_white_mask(mask, 0, 0, 68, name_height[i]);
-        lv_obj_t *name = lv_image_create(clip);
-        lv_image_set_src(name, &ui_performance_base);
-        lv_obj_set_pos(name, -17, -name_y[i]);
-    }
-    for(int i = 0; i < 4; ++i) {
+        make_label(screen, metric_names[i], &ui_font_11_regular, 18, label_y[i] + 5);
+        lv_obj_t *track = make_panel(screen, 17, bar_y[i] - 2, 152, 13);
+        lv_obj_set_style_radius(track, 3, 0);
         char percent[8];
         snprintf(percent, sizeof(percent), "%d%%", usage[i]);
         lv_obj_t *value = make_label(screen, percent, &ui_font_18_regular,
@@ -652,10 +766,10 @@ void ui_show_performance(void)
     update_battery_labels();
     performance_wifi_status_image = lv_image_create(screen);
     lv_image_set_src(performance_wifi_status_image, wifi_asset_for(current_wifi_state));
-    lv_obj_set_pos(performance_wifi_status_image, 46, 270);
+    lv_obj_set_pos(performance_wifi_status_image, 18, 270);
     performance_pc_status_image = lv_image_create(screen);
     lv_image_set_src(performance_pc_status_image, pc_asset_for(current_pc_connected));
-    lv_obj_set_pos(performance_pc_status_image, 236, 270);
+    lv_obj_set_pos(performance_pc_status_image, 205, 270);
     ui_update_performance(
         current_performance_state.cpu_percent,
         current_performance_state.memory_percent,
@@ -682,7 +796,7 @@ static void refresh_syna_conversation(void)
     }
     if(syna_assistant_label != NULL && lv_obj_is_valid(syna_assistant_label)) {
         char text[224];
-        snprintf(text, sizeof(text), "Syna\n%s",
+        snprintf(text, sizeof(text), "夏柠\n%s",
                  current_syna_assistant[0] ? current_syna_assistant : "…");
         lv_label_set_text(syna_assistant_label, text);
     }
@@ -695,7 +809,7 @@ static void refresh_syna_todos(void)
         if(current_todos[index].completed) ++completed;
     }
     if(syna_todo_count_label != NULL && lv_obj_is_valid(syna_todo_count_label)) {
-        char count[12];
+        char count[24];
         snprintf(count, sizeof(count), "%d/%d", completed, current_todo_count);
         lv_label_set_text(syna_todo_count_label, count);
     }
@@ -732,49 +846,48 @@ void ui_show_syna(void)
     lv_obj_t *screen = lv_obj_create(NULL);
     syna_screen = screen;
     style_screen(screen);
-    lv_obj_t *base = lv_image_create(screen);
-    lv_image_set_src(base, &ui_syna_base);
-    lv_obj_set_pos(base, 0, 0);
+    make_editorial_shell(screen, "03 / 夏柠 · 对话");
+    make_label(screen, "API BALANCE", &ui_font_11_regular, 208, 13);
+    make_label(screen, "DIALOGUE / 夏柠", &ui_font_14_cjk, 18, 79);
+    make_sparkle(screen, 186, 83);
+    make_label(screen, "TODAY / TASKS", &ui_font_11_regular, 221, 81);
+    make_rule(screen, 18, 103, 178, 1);
+    make_rule(screen, 221, 103, 160, 1);
+    make_rule(screen, 206, 79, 1, 168);
 
-    clock_label = make_label(screen, "--:--", &lv_font_montserrat_42, 40, 9);
+    clock_label = make_label(screen, "--:--", &lv_font_montserrat_42, 18, 24);
     syna_clock_label = clock_label;
-    lv_obj_set_width(clock_label, 129);
-    lv_obj_set_style_text_align(clock_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_width(clock_label, 150);
 
-    lv_obj_t *wallet = lv_image_create(screen);
-    lv_image_set_src(wallet, &ui_syna_wallet);
-    lv_obj_set_pos(wallet, 207, 28);
     syna_api_provider_label = make_label(screen, current_api_provider,
-                                         &ui_font_11_regular, 243, 33);
-    lv_obj_set_size(syna_api_provider_label, 63, 17);
+                                         &ui_font_11_regular, 208, 35);
+    lv_obj_set_size(syna_api_provider_label, 88, 17);
     lv_label_set_long_mode(syna_api_provider_label, LV_LABEL_LONG_CLIP);
     syna_api_balance_label = make_label(screen, current_api_balance,
-                                        &ui_font_11_regular, 306, 33);
+                                        &ui_font_11_regular, 302, 35);
     lv_obj_set_size(syna_api_balance_label, 77, 17);
     lv_label_set_long_mode(syna_api_balance_label, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_align(syna_api_balance_label, LV_TEXT_ALIGN_RIGHT, 0);
 
-    lv_obj_t *speech = lv_image_create(screen);
-    lv_image_set_src(speech, &ui_syna_speech);
-    lv_obj_set_pos(speech, 17, 79);
-    lv_obj_t *todo_header = lv_image_create(screen);
-    lv_image_set_src(todo_header, &ui_syna_todo_checked);
-    lv_obj_set_pos(todo_header, 220, 80);
     syna_todo_count_label = make_label(screen, "0/0", &ui_font_11_regular, 350, 81);
     lv_obj_set_size(syna_todo_count_label, 32, 17);
     lv_obj_set_style_text_align(syna_todo_count_label, LV_TEXT_ALIGN_RIGHT, 0);
 
-    lv_obj_t *user_bubble = make_panel(screen, 43, 111, 150, 48);
-    lv_obj_set_style_radius(user_bubble, 7, 0);
+    lv_obj_t *user_bubble = make_panel(screen, 18, 111, 178, 48);
+    lv_obj_set_style_radius(user_bubble, 0, 0);
+    lv_obj_set_style_border_width(user_bubble, 0, 0);
+    make_rule(screen, 18, 111, 178, 1);
     syna_user_label = make_label(user_bubble, "", &ui_font_14_cjk, 7, 3);
-    lv_obj_set_size(syna_user_label, 136, 42);
+    lv_obj_set_size(syna_user_label, 164, 42);
     lv_label_set_long_mode(syna_user_label, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_line_space(syna_user_label, 0, 0);
 
-    lv_obj_t *assistant_bubble = make_panel(screen, 17, 167, 166, 70);
-    lv_obj_set_style_radius(assistant_bubble, 7, 0);
+    lv_obj_t *assistant_bubble = make_panel(screen, 18, 167, 178, 70);
+    lv_obj_set_style_radius(assistant_bubble, 0, 0);
+    lv_obj_set_style_border_width(assistant_bubble, 0, 0);
+    make_rule(screen, 18, 167, 178, 1);
     syna_assistant_label = make_label(assistant_bubble, "", &ui_font_14_cjk, 7, 3);
-    lv_obj_set_size(syna_assistant_label, 152, 62);
+    lv_obj_set_size(syna_assistant_label, 164, 62);
     lv_label_set_long_mode(syna_assistant_label, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_line_space(syna_assistant_label, 0, 0);
 
@@ -793,10 +906,10 @@ void ui_show_syna(void)
                                           354, 268, 36, 18);
     syna_wifi_status_image = lv_image_create(screen);
     lv_image_set_src(syna_wifi_status_image, wifi_asset_for(current_wifi_state));
-    lv_obj_set_pos(syna_wifi_status_image, 46, 270);
+    lv_obj_set_pos(syna_wifi_status_image, 18, 270);
     syna_pc_status_image = lv_image_create(screen);
     lv_image_set_src(syna_pc_status_image, pc_asset_for(current_pc_connected));
-    lv_obj_set_pos(syna_pc_status_image, 236, 270);
+    lv_obj_set_pos(syna_pc_status_image, 205, 270);
 
     refresh_syna_conversation();
     refresh_syna_todos();
@@ -821,42 +934,38 @@ void ui_show_computers(void)
     computers_screen = screen;
     style_screen(screen);
 
-    lv_obj_t *frame = make_panel(screen, 0, 0, 400, 300);
-    lv_obj_set_style_radius(frame, 0, 0);
-
-    lv_obj_t *header = make_panel(screen, 6, 7, 388, 44);
-    make_label(header, "SELECT COMPUTER", &ui_font_18_regular, 14, 9);
-    computer_found_label = make_label(header, "3 FOUND", &ui_font_11_regular,
-                                      306, 15);
-    lv_obj_set_width(computer_found_label, 68);
+    make_pixel_ribbon(screen, "04 / 夏柠 · 电脑");
+    computer_found_label = make_label(screen, "3 FOUND", &ui_font_11_regular,
+                                      300, 10);
+    lv_obj_set_width(computer_found_label, 82);
     lv_obj_set_style_text_align(computer_found_label, LV_TEXT_ALIGN_RIGHT, 0);
+    make_rule(screen, 18, 37, 364, 1);
+    make_label(screen, "SELECT DEVICE", &ui_font_18_regular, 18, 51);
+    make_rule(screen, 18, 79, 364, 1);
 
     for(int i = 0; i < COMPUTER_ROWS_VISIBLE; ++i) {
-        int32_t row_y = 57 + i * 59;
-        lv_obj_t *row = make_panel(screen, 6, row_y, 388, 53);
+        int32_t row_y = 86 + i * 55;
+        lv_obj_t *row = make_panel(screen, 18, row_y, 364, 50);
+        lv_obj_set_style_radius(row, 0, 0);
+        lv_obj_set_style_border_width(row, 1, 0);
         lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(row, computer_row_clicked, LV_EVENT_CLICKED,
                             (void *)(uintptr_t)i);
 
         computer_rows[i] = row;
         computer_name_labels[i] = make_label(row, "",
-                                             &ui_font_18_regular, 14, 5);
-        computer_state_labels[i] = make_label(row, "", &ui_font_11_regular, 14, 32);
+                                             &ui_font_18_regular, 12, 3);
+        computer_state_labels[i] = make_label(row, "", &ui_font_11_regular, 12, 29);
 
         computer_current_labels[i] = make_label(row, "",
-                                                &ui_font_11_regular, 314, 12);
+                                                &ui_font_11_regular, 288, 10);
+        computer_selection_markers[i] = make_rule(row, 4, 14, 3, 20);
     }
 
-    lv_obj_t *detail_panel = make_panel(screen, 6, 234, 388, 60);
-    make_label(detail_panel, "UP/DOWN  SELECT", &ui_font_11_regular, 14, 10);
-    make_label(detail_panel, "ENTER  CONNECT", &ui_font_11_regular, 145, 10);
-    make_label(detail_panel, "ESC  BACK", &ui_font_11_regular, 302, 10);
-
-    lv_obj_t *remembered_label = make_label(
-        detail_panel, "PAIRED PCS ARE REMEMBERED BY REPORTER ID",
-        &ui_font_11_regular, 0, 38);
-    lv_obj_set_width(remembered_label, 388);
-    lv_obj_set_style_text_align(remembered_label, LV_TEXT_ALIGN_CENTER, 0);
+    make_pixel_footer(screen);
+    make_label(screen, "UP/DOWN  SELECT", &ui_font_11_regular, 18, 272);
+    make_label(screen, "ENTER  CONNECT", &ui_font_11_regular, 151, 272);
+    make_label(screen, "ESC  BACK", &ui_font_11_regular, 309, 272);
     update_computer_rows();
     lv_screen_load(screen);
 }
@@ -869,15 +978,30 @@ static void ui_show_about(void)
     if(about_screen == NULL) {
         about_screen = lv_obj_create(NULL);
         style_screen(about_screen);
-        make_label(about_screen, "希娜 Syna  v1.0.0", &ui_font_14_cjk, 18, 18);
-        make_label(about_screen, "关于作者：黑沐", &ui_font_14_cjk, 18, 54);
-        make_label(about_screen, "B站 UID: 386856267", &ui_font_14_cjk, 18, 85);
-        make_label(about_screen, "QQ: 3091479711", &ui_font_14_cjk, 18, 112);
-        make_label(about_screen, "github.com/heimumumu/", &ui_font_14_cjk, 18, 147);
-        make_label(about_screen, "Waveshare_ESP32_RLCD", &ui_font_14_cjk, 18, 171);
-        make_label(about_screen, "发布版本：仓库 Releases 页面", &ui_font_14_cjk, 18, 201);
-        make_label(about_screen, "原创部分 MIT - 保留版权声明", &ui_font_14_cjk, 18, 233);
-        make_label(about_screen, "感谢小智、LVGL及第三方贡献者", &ui_font_14_cjk, 18, 264);
+        make_pixel_ribbon(about_screen, "05 / 夏柠 · 关于");
+        make_label(about_screen, "v1.0.0", &ui_font_11_regular, 338, 14);
+        make_rule(about_screen, 18, 38, 364, 1);
+        make_label(about_screen, "ABOUT", &ui_font_18_regular, 18, 51);
+        make_label(about_screen, "关于", &ui_font_14_cjk, 111, 53);
+        make_label(about_screen, "OPEN SOURCE CREDITS", &ui_font_11_regular, 18, 80);
+        make_rule(about_screen, 18, 100, 364, 1);
+
+        make_label(about_screen, "01 / ORIGINAL", &ui_font_11_regular, 18, 111);
+        make_label(about_screen, "黑沐", &ui_font_14_cjk, 18, 132);
+        make_label(about_screen, "github.com/heimumumu", &ui_font_11_regular, 18, 161);
+        make_rule(about_screen, 194, 108, 1, 76);
+        make_label(about_screen, "02 / UI REWORK", &ui_font_11_regular, 211, 111);
+        make_label(about_screen, "玉米", &ui_font_14_cjk, 211, 132);
+        make_label(about_screen, "github.com/yumi233", &ui_font_11_regular, 211, 161);
+        make_heart(about_screen, 366, 135);
+
+        make_label(about_screen, "SOURCE PROJECT", &ui_font_11_regular, 18, 204);
+        make_label(about_screen, "heimumumu/Waveshare_ESP32_RLCD",
+                   &ui_font_14_regular, 18, 222);
+        make_rule(about_screen, 18, 248, 364, 1);
+        make_label(about_screen, "MIT · 保留原作者版权与许可", &ui_font_14_cjk, 18, 258);
+        make_label(about_screen, "Third-party assets retain their own licenses",
+                   &ui_font_11_regular, 18, 281);
     }
     lv_screen_load(about_screen);
 }
@@ -895,10 +1019,26 @@ static void show_startup_signature(void)
     lv_obj_set_size(panel, 400, 300);
     lv_obj_set_pos(panel, 0, 0);
     style_screen(panel);
-    lv_obj_t *title = make_label(panel, "希娜 Syna · 黑沐", &ui_font_28_brand, 0, 106);
+    make_pixel_frame(panel, 18, 17, 364, 266);
+    make_rule(panel, 130, 31, 140, 20);
+    lv_obj_t *eyebrow = make_label(panel, "夏柠  /  欢迎", &ui_font_14_cjk, 130, 32);
+    lv_obj_set_width(eyebrow, 140);
+    lv_obj_set_style_text_align(eyebrow, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_color(eyebrow, COLOR_WHITE, 0);
+    make_pixel_sprig(panel, 82, 113);
+    make_pixel_sprig(panel, 303, 113);
+    make_pixel_frame(panel, 154, 65, 92, 92);
+    lv_obj_t *avatar = lv_image_create(panel);
+    lv_image_set_src(avatar, &ui_character_avatar);
+    lv_obj_set_pos(avatar, 160, 71);
+    lv_obj_t *title = make_label(panel, "夏柠", &ui_font_28_brand, 0, 174);
     lv_obj_set_width(title, 400);
     lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_t *version = make_label(panel, "v1.0.0", &ui_font_18_regular, 0, 157);
+    make_rule(panel, 138, 213, 124, 1);
+    lv_obj_t *status = make_label(panel, "正在启动...", &ui_font_14_cjk, 0, 223);
+    lv_obj_set_width(status, 400);
+    lv_obj_set_style_text_align(status, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_t *version = make_label(panel, "XIA NING  /  v1.0.0", &ui_font_11_regular, 0, 259);
     lv_obj_set_width(version, 400);
     lv_obj_set_style_text_align(version, LV_TEXT_ALIGN_CENTER, 0);
     lv_timer_create(dismiss_signature, 2000, panel);
@@ -1117,13 +1257,26 @@ void ui_update_agent_state(const char *state)
 {
     if(state == NULL || state[0] == '\0') state = "OFFLINE";
     const bool state_changed = strcmp(current_agent_state, state) != 0;
+    if(!state_changed) return;
     snprintf(current_agent_state, sizeof(current_agent_state), "%s", state);
     if(dashboard_agent_status_image != NULL &&
        lv_obj_is_valid(dashboard_agent_status_image)) {
         lv_image_set_src(dashboard_agent_status_image,
                          status_asset_for(current_agent_state));
-        if(state_changed) {
+        if(strcmp(current_agent_state, "LOGIN_REQUIRED") == 0) {
+            lv_obj_add_flag(dashboard_agent_status_image, LV_OBJ_FLAG_HIDDEN);
+        }
+        else if(state_changed) {
             lv_obj_remove_flag(dashboard_agent_status_image, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    if(dashboard_agent_login_label != NULL &&
+       lv_obj_is_valid(dashboard_agent_login_label)) {
+        if(strcmp(current_agent_state, "LOGIN_REQUIRED") == 0) {
+            lv_obj_remove_flag(dashboard_agent_login_label, LV_OBJ_FLAG_HIDDEN);
+        }
+        else {
+            lv_obj_add_flag(dashboard_agent_login_label, LV_OBJ_FLAG_HIDDEN);
         }
     }
     if(agent_done_blink_timer != NULL && state_changed) {
@@ -1137,8 +1290,52 @@ void ui_update_agent_state(const char *state)
     }
 }
 
+static void set_agent_visible(lv_obj_t *object, bool visible)
+{
+    if(object == NULL || !lv_obj_is_valid(object)) return;
+    if(visible) lv_obj_remove_flag(object, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(object, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void refresh_agent_home(void)
+{
+    const bool show_short = agent_home_mode == 0;
+    const bool show_week = agent_home_mode != 2;
+    const bool show_task = agent_home_mode != 0;
+    set_agent_visible(dashboard_short_quota_title, show_short);
+    set_agent_visible(dashboard_short_quota_label, show_short);
+    set_agent_visible(dashboard_short_quota_track, show_short);
+    set_agent_visible(dashboard_short_quota_fill, show_short && quota_fill_valid[0]);
+    set_agent_visible(dashboard_week_quota_title, show_week);
+    set_agent_visible(dashboard_week_quota_label, show_week);
+    set_agent_visible(dashboard_week_quota_track, show_week);
+    set_agent_visible(dashboard_week_quota_fill, show_week && quota_fill_valid[1]);
+    set_agent_visible(dashboard_agent_task_title, show_task);
+    set_agent_visible(dashboard_agent_task_label, show_task);
+    if(dashboard_agent_task_label != NULL && lv_obj_is_valid(dashboard_agent_task_label)) {
+        lv_obj_set_height(dashboard_agent_task_label, show_week ? 22 : 56);
+    }
+}
+
+void ui_set_agent_home_mode(int mode)
+{
+    if(mode < 0 || mode > 2) mode = 1;
+    if(agent_home_mode == mode) return;
+    agent_home_mode = mode;
+    refresh_agent_home();
+}
+
+void ui_update_agent_task(const char *task)
+{
+    snprintf(current_agent_task, sizeof(current_agent_task), "%s",
+             task != NULL && task[0] ? task : "暂无任务");
+    if(dashboard_agent_task_label != NULL && lv_obj_is_valid(dashboard_agent_task_label)) {
+        lv_label_set_text(dashboard_agent_task_label, current_agent_task);
+    }
+}
+
 void ui_update_codex_quota(int short_remaining_percent,
-                           int week_remaining_percent, bool connected)
+                           int week_remaining_percent, bool connected, bool stale)
 {
     const int values[2] = {short_remaining_percent, week_remaining_percent};
     lv_obj_t *labels[2] = {dashboard_short_quota_label,
@@ -1147,8 +1344,9 @@ void ui_update_codex_quota(int short_remaining_percent,
                           dashboard_week_quota_fill};
     for(int index = 0; index < 2; ++index) {
         const bool valid = connected && values[index] >= 0 && values[index] <= 100;
+        quota_fill_valid[index] = valid && values[index] > 0;
         char text[8];
-        if(valid) snprintf(text, sizeof(text), "%d%%", values[index]);
+        if(valid) snprintf(text, sizeof(text), "%s%d%%", stale ? "~" : "", values[index]);
         else snprintf(text, sizeof(text), "--");
         if(labels[index] != NULL && lv_obj_is_valid(labels[index])) {
             lv_label_set_text(labels[index], text);
@@ -1163,6 +1361,7 @@ void ui_update_codex_quota(int short_remaining_percent,
             }
         }
     }
+    refresh_agent_home();
 }
 
 static void format_media_time(char *buffer, size_t size, int seconds, bool valid)
@@ -1330,12 +1529,13 @@ static void update_computer_rows(void)
         lv_label_set_text(computer_state_labels[i], state);
         lv_label_set_text(computer_current_labels[i],
                           item_index == current_list_computer ? "CURRENT" : "");
+        set_agent_visible(computer_selection_markers[i], selected);
 
         /* White-on-black antialiased glyphs lose strokes after 1-bit
          * quantization. Keep the same rounded-card language as the dashboard,
          * and show selection with a bold black outline instead. */
         lv_obj_set_style_bg_color(computer_rows[i], COLOR_WHITE, 0);
-        lv_obj_set_style_border_width(computer_rows[i], selected ? 3 : 1, 0);
+        lv_obj_set_style_border_width(computer_rows[i], selected ? 2 : 1, 0);
         lv_obj_set_style_text_color(computer_rows[i], COLOR_BLACK, 0);
         lv_obj_set_style_text_color(computer_name_labels[i], COLOR_BLACK, 0);
         lv_obj_set_style_text_color(computer_state_labels[i], COLOR_BLACK, 0);

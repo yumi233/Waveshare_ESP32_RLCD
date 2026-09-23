@@ -37,6 +37,7 @@ struct PanelReporterMetrics {
     char reporter_id[40] = {};
     char computer_name[40] = {};
     char agent_state[16] = "OFFLINE";
+    char agent_task[96] = {};
 };
 
 struct PanelReporterDevice {
@@ -73,6 +74,7 @@ private:
         char pairing_hash[65] = {};
         char computer_name[40] = {};
         char agent_state[16] = "OFFLINE";
+        char agent_task[96] = {};
         int16_t codex_short_remaining = -1;
         int16_t codex_week_remaining = -1;
         bool codex_quota_stale = false;

@@ -24,6 +24,8 @@
 
 `source/icons/` 和 `source/ciallo_maid_pixel_transparent.png` 是上一版状态首页素材，当前音乐状态首页不再引用，但暂时保留以便回退或制作其他页面。
 
+`source/user_character/avatar-public-80.png` 是公开版原创几何像素头像；生成器将它转换为 `ui_character_avatar.c`。本地角色参考图及衍生头像不在公开仓库中。
+
 ## 重新生成 LVGL 资源
 
 ```powershell

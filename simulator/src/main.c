@@ -122,12 +122,17 @@ int main(void)
     SDL_AddEventWatch(watch_sdl_events, NULL);
 
     ui_init();
+    const char *agent_mode = getenv("AI_PANEL_AGENT_MODE");
+    if(agent_mode != NULL) {
+        ui_set_agent_home_mode(strcmp(agent_mode, "quotas") == 0 ? 0 :
+                               strcmp(agent_mode, "task") == 0 ? 2 : 1);
+    }
     ui_update_environment(26.0f, 58.0f, 87, true, true);
     ui_update_wifi_state(UI_WIFI_CONNECTED);
     ui_update_performance(38.0f, 67.0f, 42.0f, true, 15.0f,
                           64.0f, true, 57.0f, true, 12,
                           2.4f, 18.7f, true);
-    ui_update_codex_quota(100, 91, true);
+    ui_update_codex_quota(100, 91, true, false);
     ui_update_api_balance("DeepSeek", "CNY 86.42");
     ui_update_pc_connected(true);
     ui_update_syna_conversation("今天还有什么安排？",
@@ -163,6 +168,10 @@ int main(void)
     else if(start_page != NULL && strcmp(start_page, "syna") == 0) {
         ui_show_syna();
     }
+    else if(start_page != NULL && strcmp(start_page, "about") == 0) {
+        ui_show_syna();
+        ui_toggle_page();
+    }
 
     uint32_t last_clock_update = SDL_GetTicks();
     uint32_t started_at = last_clock_update;
@@ -170,6 +179,9 @@ int main(void)
     bool screenshot_saved = false;
     const char *auto_close_value = getenv("AI_PANEL_AUTOCLOSE_MS");
     const char *screenshot_path = getenv("AI_PANEL_SCREENSHOT_PATH");
+    const char *screenshot_delay_value = getenv("AI_PANEL_SCREENSHOT_DELAY_MS");
+    const uint32_t screenshot_delay_ms = screenshot_delay_value != NULL
+        ? (uint32_t)strtoul(screenshot_delay_value, NULL, 10) : 200U;
     if(auto_close_value != NULL) auto_close_ms = (uint32_t)strtoul(auto_close_value, NULL, 10);
 
     while(true) {
@@ -183,7 +195,7 @@ int main(void)
 
         uint32_t delay_ms = lv_timer_handler();
 
-        if(!screenshot_saved && screenshot_path != NULL && now - started_at >= 200U) {
+        if(!screenshot_saved && screenshot_path != NULL && now - started_at >= screenshot_delay_ms) {
             lv_refr_now(display);
             if(save_screenshot(display, screenshot_path) != 0) {
                 SDL_Log("Could not save simulator screenshot to %s: %s", screenshot_path, SDL_GetError());

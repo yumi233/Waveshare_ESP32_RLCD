@@ -1,4 +1,4 @@
-# 希娜 Syna
+# 夏柠
 
 微雪 ESP32-S3-RLCD-4.2 桌面助手，配套 Windows / macOS Reporter。
 
@@ -7,6 +7,7 @@
 ## 功能与支持范围
 
 - 开发板显示电脑性能、Agent 状态与额度，以及音乐信息。
+- 首页使用可公开分发的原创像素头像；Agent 区域可在任务＋周额度、两项额度、仅任务之间切换。语音唤醒短语为「你好夏柠」。
 - 局域网发现电脑、选择绑定电脑，保留配置升级。
 - Windows 一体安装器提供仅安装 Reporter、保留配置升级、首次安装三种模式。
 - 当前固件改为一次唤醒一轮问答，回答期间不接受语音打断。此项已编译、刷入，实际语音体验待验证。
@@ -41,8 +42,8 @@ Windows 电脑端安装和保留配置刷机已由作者本机验收。macOS 有
 
 ## 作者与许可
 
-作者：黑沐。原创部分按 [MIT](LICENSE) 分发；第三方代码、字体和模型保留原许可证，见 [第三方说明](THIRD_PARTY_NOTICES.md)。
+原项目作者：[黑沐](https://github.com/heimumumu)。本地定制版的界面重构与定制：[玉米](https://github.com/yumi233)。原作者的版权和 MIT 许可声明保持完整；第三方代码、字体和模型保留各自许可证，见 [第三方说明](THIRD_PARTY_NOTICES.md)。
 
-仓库：<https://github.com/heimumumu/Waveshare_ESP32_RLCD>
+上游项目：<https://github.com/heimumumu/Waveshare_ESP32_RLCD>
 
-
+公开版不包含本地使用的角色参考图、衍生头像或设备配置。若自行替换头像，请先确认素材有相应的发布授权。

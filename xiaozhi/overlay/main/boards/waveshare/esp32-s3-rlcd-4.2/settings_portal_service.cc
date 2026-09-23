@@ -19,17 +19,17 @@ namespace {
 constexpr char kTag[] = "PanelSettings";
 constexpr size_t kMaximumBodyBytes = 4096;
 
-const char kSettingsPage[] = R"HTML(<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>召唤Syna-sama</title><style>
-*{box-sizing:border-box}body{margin:0;background:#f1f1ef;color:#111;font-family:system-ui,"Microsoft YaHei",sans-serif}.card{max-width:620px;margin:20px auto;padding:24px;background:#fff;border:2px solid #111;border-radius:18px;box-shadow:6px 6px 0 #111}h1{font-size:25px;margin:0 0 7px}.sub,.tip{color:#555;line-height:1.55}.sub{margin:0 0 18px}.tip{font-size:13px;margin:7px 0 0}fieldset{margin:16px 0;padding:15px;border:2px solid #111;border-radius:12px}legend{padding:0 7px;font-weight:800}label{display:block;font-weight:700;margin:12px 0 6px}input,select,textarea{width:100%;padding:11px;border:2px solid #111;border-radius:8px;font-size:16px;background:#fff}textarea{min-height:76px;resize:vertical}button{width:100%;margin-top:15px;padding:13px;border:2px solid #111;border-radius:8px;background:#111;color:#fff;font-size:17px;font-weight:800}.notice{display:none;padding:11px;margin:0 0 14px;border:1px solid #111;border-radius:8px;background:#eee}.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:520px){.card{margin:0;border-radius:0;box-shadow:none}.row{grid-template-columns:1fr}}</style></head><body><main class="card"><h1>召唤Syna-sama</h1><p class="sub">网络、Reporter、API 余额、syna语音和电池校准统一设置。密码与令牌不会回显，留空即保持原值。</p><div id="notice" class="notice"></div><form id="form">
+const char kSettingsPage[] = R"HTML(<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>召唤夏柠</title><style>
+*{box-sizing:border-box}body{margin:0;background:#f1f1ef;color:#111;font-family:system-ui,"Microsoft YaHei",sans-serif}.card{max-width:620px;margin:20px auto;padding:24px;background:#fff;border:2px solid #111;border-radius:18px;box-shadow:6px 6px 0 #111}h1{font-size:25px;margin:0 0 7px}.sub,.tip{color:#555;line-height:1.55}.sub{margin:0 0 18px}.tip{font-size:13px;margin:7px 0 0}fieldset{margin:16px 0;padding:15px;border:2px solid #111;border-radius:12px}legend{padding:0 7px;font-weight:800}label{display:block;font-weight:700;margin:12px 0 6px}input,select,textarea{width:100%;padding:11px;border:2px solid #111;border-radius:8px;font-size:16px;background:#fff}textarea{min-height:76px;resize:vertical}button{width:100%;margin-top:15px;padding:13px;border:2px solid #111;border-radius:8px;background:#111;color:#fff;font-size:17px;font-weight:800}.notice{display:none;padding:11px;margin:0 0 14px;border:1px solid #111;border-radius:8px;background:#eee}.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:520px){.card{margin:0;border-radius:0;box-shadow:none}.row{grid-template-columns:1fr}}</style></head><body><main class="card"><h1>召唤夏柠</h1><p class="sub">网络、Reporter、API 余额、夏柠语音和电池校准统一设置。密码与令牌不会回显，留空即保持原值。</p><div id="notice" class="notice"></div><form id="form">
 <fieldset><legend>网络与时间</legend><label>Wi-Fi / 手机热点名称</label><input name="ssid" list="networks" maxlength="32" autocomplete="off"><datalist id="networks"></datalist><label>Wi-Fi 密码</label><input name="password" type="password" maxlength="64" autocomplete="new-password" placeholder="留空保持已保存密码"><p class="tip">若不修改网络，两项都留空。设备会联网自动校时，时区固定为中国标准时间 UTC+8。</p></fieldset>
-<fieldset><legend>电脑 Reporter</legend><label>配对令牌</label><input name="reporter_token" type="password" maxlength="96" autocomplete="off" placeholder="留空保持原令牌"><p class="tip">应与电脑 Reporter 中的令牌一致。</p></fieldset>
+<fieldset><legend>电脑 Reporter</legend><label>配对令牌</label><input name="reporter_token" type="password" maxlength="96" autocomplete="off" placeholder="留空保持原令牌"><p class="tip">应与电脑 Reporter 中的令牌一致。</p><label>首页 Agent 信息</label><select name="agent_home_mode"><option value="task_week">当前任务和每周额度</option><option value="quotas">五小时和每周额度</option><option value="task">只显示当前任务</option></select><p class="tip">无需重新刷机；保存后首页会按所选模式显示。</p></fieldset>
 <fieldset><legend>API 余额</legend><label>提供商显示名称</label><input name="api_provider" maxlength="40" placeholder="DeepSeek / OpenRouter / 自建平台"><label>API 基础地址</label><input name="api_base" maxlength="200" placeholder="https://api.example.com"><label>API Key</label><input name="api_key" type="password" maxlength="160" autocomplete="off" placeholder="留空保持原 Key"><label>余额获取方式</label><select name="balance_adapter"><option value="disabled">不查询余额</option><option value="deepseek">DeepSeek 官方预设</option><option value="custom">自定义 HTTP 接口</option></select><section id="custom"><label>余额接口完整地址</label><input name="balance_url" maxlength="240"><div class="row"><div><label>请求方法</label><select name="balance_method"><option>GET</option><option>POST</option></select></div><div><label>鉴权方式</label><select name="balance_auth"><option value="bearer">Bearer</option><option value="header">自定义请求头</option><option value="query">URL 参数</option><option value="none">无鉴权</option></select></div></div><label>请求头名 / 参数名</label><input name="balance_auth_name" maxlength="64" placeholder="Authorization"><label>余额 JSON 路径</label><input name="balance_value_path" maxlength="160" placeholder="data.balance"><div class="row"><div><label>固定单位</label><input name="balance_unit" maxlength="16" placeholder="CNY"></div><div><label>数值倍率</label><input name="balance_scale" type="number" step="0.000001"></div></div><label>单位 JSON 路径（可选）</label><input name="balance_unit_path" maxlength="160"><label>POST JSON（可选）</label><textarea name="balance_body" maxlength="512" placeholder="留空保持原内容；可使用 {{API_KEY}}"></textarea></section></fieldset>
-<fieldset><legend>syna语音</legend><p class="tip">当前小智云能力由设备激活信息管理，无需与余额 API 共用 Key。</p><label>OTA / 配置服务地址（高级，可选）</label><input name="ota_url" maxlength="240"><p class="tip">留空使用固件默认官方地址。填写错误会导致下次启动无法取得小智云配置。</p></fieldset>
+<fieldset><legend>夏柠语音</legend><p class="tip">当前小智云能力由设备激活信息管理，无需与余额 API 共用 Key。</p><label>OTA / 配置服务地址（高级，可选）</label><input name="ota_url" maxlength="240"><p class="tip">留空使用固件默认官方地址。填写错误会导致下次启动无法取得小智云配置。</p></fieldset>
 <fieldset><legend>电池校准</legend><label>电压倍率</label><input name="battery_scale" type="number" min="2.5" max="3.5" step="0.001"><p class="tip">默认 3.000。新倍率 = 当前倍率 × 万用表实测电压 ÷ 屏幕显示电压。</p></fieldset><button type="submit">保存设置</button></form><p class="tip">以后先按住 BOOT，再同时长按 KEY 约 3 秒即可再次进入；已保存的 Wi-Fi 不会被删除。</p></main><script>
 const f=document.getElementById('form'),n=document.getElementById('notice'),custom=document.getElementById('custom');const show=m=>{n.textContent=m;n.style.display='block';scrollTo(0,0)};const sync=()=>custom.style.display=f.balance_adapter.value==='custom'?'block':'none';f.balance_adapter.onchange=sync;
 fetch('/panel/config').then(r=>r.json()).then(c=>{for(const[k,v]of Object.entries(c)){if(f.elements[k]&&v!==null)f.elements[k].value=v}sync()}).catch(()=>show('读取设置失败，请刷新页面'));
 fetch('/scan').then(r=>r.json()).then(x=>{const d=document.getElementById('networks');for(const a of(x.aps||[])){const o=document.createElement('option');o.value=String(a.ssid);d.appendChild(o)}}).catch(()=>{});
-f.onsubmit=async e=>{e.preventDefault();const o=Object.fromEntries(new FormData(f));show('正在保存…');try{let r=await fetch('/panel/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(o)}),j=await r.json();if(!j.success)throw Error(j.error||'保存失败');if(o.ssid){r=await fetch('/submit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ssid:o.ssid,password:o.password})});j=await r.json();if(!j.success)throw Error(j.error||'Wi-Fi 连接失败')}else{r=await fetch('/exit',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});j=await r.json();if(!j.success)throw Error(j.error||'退出设置模式失败')}show('设置已保存。设备正在恢复联网，Syna-0721 将自动关闭。')}catch(x){show(x.message)}};sync();
+f.onsubmit=async e=>{e.preventDefault();const o=Object.fromEntries(new FormData(f));show('正在保存…');try{let r=await fetch('/panel/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(o)}),j=await r.json();if(!j.success)throw Error(j.error||'保存失败');if(o.ssid){r=await fetch('/submit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ssid:o.ssid,password:o.password})});j=await r.json();if(!j.success)throw Error(j.error||'Wi-Fi 连接失败')}else{r=await fetch('/exit',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});j=await r.json();if(!j.success)throw Error(j.error||'退出设置模式失败')}show('设置已保存。设备正在恢复联网，XiaNing-0721 将自动关闭。')}catch(x){show(x.message)}};sync();
 </script></body></html>)HTML";
 
 void AddString(cJSON* root, const char* name, const std::string& value) {
@@ -94,11 +94,22 @@ float SettingsPortalService::GetBatteryScale() {
     return scale;
 }
 
+int SettingsPortalService::GetAgentHomeMode() {
+    const int cached = agent_home_mode_.load();
+    if (cached >= 0) return cached;
+    Settings panel("wifi-config");
+    const std::string mode = panel.GetString("agent-home", "task_week");
+    const int value = mode == "quotas" ? 0 : mode == "task" ? 2 : 1;
+    agent_home_mode_.store(value);
+    return value;
+}
+
 esp_err_t SettingsPortalService::HandleConfig(httpd_req_t* request) {
     Settings panel("wifi-config");
     Settings wifi("wifi");
     cJSON* root = cJSON_CreateObject();
     AddString(root, "api_provider", panel.GetString("api-provider", "API"));
+    AddString(root, "agent_home_mode", panel.GetString("agent-home", "task_week"));
     AddString(root, "api_base", panel.GetString("api-base", ""));
     AddString(root, "balance_adapter", panel.GetString("bal-adapter", "disabled"));
     AddString(root, "balance_url", panel.GetString("bal-url", ""));
@@ -145,6 +156,16 @@ esp_err_t SettingsPortalService::HandleSave(httpd_req_t* request) {
     {
         Settings panel("wifi-config", true);
         SetIfPresent(panel, root, "reporter_token", "reporter", false);
+        const cJSON* home_mode = cJSON_GetObjectItemCaseSensitive(root, "agent_home_mode");
+        if (cJSON_IsString(home_mode) && home_mode->valuestring != nullptr &&
+            (strcmp(home_mode->valuestring, "task_week") == 0 ||
+             strcmp(home_mode->valuestring, "quotas") == 0 ||
+             strcmp(home_mode->valuestring, "task") == 0)) {
+            panel.SetString("agent-home", home_mode->valuestring);
+            SettingsPortalService::GetInstance().agent_home_mode_.store(
+                strcmp(home_mode->valuestring, "quotas") == 0 ? 0 :
+                strcmp(home_mode->valuestring, "task") == 0 ? 2 : 1);
+        }
         SetIfPresent(panel, root, "api_provider", "api-provider");
         SetIfPresent(panel, root, "api_base", "api-base");
         SetIfPresent(panel, root, "api_key", "api-key", false);
@@ -195,5 +216,5 @@ extern "C" void wifi_config_register_custom_handlers(httpd_handle_t server) {
 }
 
 extern "C" const char* wifi_config_custom_ssid() {
-    return "Syna-0721";
+    return "XiaNing-0721";
 }

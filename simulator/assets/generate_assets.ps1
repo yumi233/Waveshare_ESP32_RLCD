@@ -245,16 +245,7 @@ try {
     Draw-GeneratedAsset $graphics $icons.Humidity ([System.Drawing.Rectangle]::new(306, 16, 18, 29))
     Draw-Text $graphics $textTemperature $cjk14 230 15
     Draw-Text $graphics $textHumidity $cjk14 331 15
-    Draw-Text $graphics 'AI AGENT' $latin18 49 82
-
-    Fill-RoundedRectangle $graphics ([System.Drawing.Brushes]::Black) 46 108 88 29 5
-    Draw-GeneratedAsset $graphics $icons.AgentStatus ([System.Drawing.Rectangle]::new(52, 111, 23, 23)) -White
-    Draw-Text $graphics $textRunning $cjk16 81 112 ([System.Drawing.Color]::White)
-    $graphics.DrawLine($pen1, 17, 146, 162, 146)
-    Draw-Text $graphics $textFiveHourQuota $cjk13 17 159
-    Draw-Text $graphics $textWeekQuota $cjk13 17 202
-    Draw-RoundedOutline $graphics $pen1 17 177 146 15 4
-    Draw-RoundedOutline $graphics $pen1 17 220 146 15 4
+    # Agent content is drawn by LVGL so mode changes do not require masks over this card.
 
     Draw-GeneratedAsset $graphics $icons.Waveform ([System.Drawing.Rectangle]::new(193, 82, 24, 16))
     Draw-Text $graphics $textNowPlaying $cjk14 223 82
@@ -492,6 +483,9 @@ foreach($pcStatus in $pcStatusDefinitions.GetEnumerator()) {
 & $python $lvglConverter --ofmt C --cf I1 --background 0xffffff --align 1 `
     --output $cAssetDir --name ui_screen_base (Join-Path $generatedDir 'screen_base.png')
 if($LASTEXITCODE -ne 0) { throw 'Could not convert the screen base to an LVGL image.' }
+& $python $lvglConverter --ofmt C --cf I1 --background 0xffffff --align 1 `
+    --output $cAssetDir --name ui_character_avatar (Join-Path $PSScriptRoot 'source\user_character\avatar-public-80.png')
+if($LASTEXITCODE -ne 0) { throw 'Could not convert the character avatar to an LVGL image.' }
 & $python $lvglConverter --ofmt C --cf I1 --background 0xffffff --align 1 `
     --output $cAssetDir --name ui_performance_base (Join-Path $generatedDir 'performance_base.png')
 if($LASTEXITCODE -ne 0) { throw 'Could not convert the performance base to an LVGL image.' }
