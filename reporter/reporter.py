@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import errno
 import hashlib
 import json
 import logging
 from logging.handlers import RotatingFileHandler
 import os
-import queue
 import secrets
 import signal
 import sqlite3
@@ -28,12 +28,14 @@ from typing import Any
 import psutil
 
 from media_monitor import NeteaseMediaMonitor
+from electricity_monitor import ElectricityMonitor, valid_config
 from macos_metrics import MacMetrics
 from codex_runtime import read_activity
-from platform_support import application_data_dir, disk_root, codex_executable, acquire_posix_instance
+from platform_support import application_data_dir, disk_root, codex_executables, acquire_posix_instance
+from codex_rpc import AppServerConnection, CodexConnectionError, CodexRPCError
 
 
-HTTP_PORT = 8765
+HTTP_PORT = 18765 if sys.platform == "darwin" else 8765
 DISCOVERY_PORT = 8766
 DISCOVERY_REQUEST = b"AI_PANEL_DISCOVER_V1"
 PROTOCOL_VERSION = 1
@@ -412,11 +414,12 @@ class CodexQuotaCollector:
 
     _POLL_SECONDS = 30
     _CACHE_SECONDS = 120
+    _CONNECTION_SECONDS = 300
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._process_lock = threading.Lock()
-        self._process = None
+        self._connection_lock = threading.Lock()
+        self._connection: AppServerConnection | None = None
         self._snapshot = QuotaSnapshot()
         self._success_at = float('-inf')
         self._failures = 0
@@ -428,20 +431,15 @@ class CodexQuotaCollector:
 
     def stop(self) -> None:
         self._stop.set()
-        with self._process_lock:
-            process = self._process
-            if process is not None and process.poll() is None:
-                try:
-                    process.terminate()
-                except ProcessLookupError:
-                    pass
-        if process is not None:
-            try:
-                process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=2)
-        self._thread.join(timeout=3)
+        self._close_connection()
+        if self._thread.ident is not None:
+            self._thread.join(timeout=3)
+
+    def _close_connection(self) -> None:
+        with self._connection_lock:
+            connection, self._connection = self._connection, None
+        if connection is not None:
+            connection.close()
 
     def snapshot(self) -> QuotaSnapshot:
         with self._lock:
@@ -475,122 +473,73 @@ class CodexQuotaCollector:
             return self._POLL_SECONDS
 
     def _run(self) -> None:
-        while not self._stop.is_set():
-            snapshot = self._read_snapshot()
-            delay = self._accept_snapshot(snapshot)
-            if self._stop.wait(delay):
-                break
+        try:
+            while not self._stop.is_set():
+                snapshot = self._read_snapshot()
+                delay = self._accept_snapshot(snapshot)
+                if self._stop.wait(delay):
+                    break
+        finally:
+            self._close_connection()
 
     @staticmethod
-    def _codex_executable() -> str | None:
-        return codex_executable()
+    def _codex_executables() -> list[str]:
+        return codex_executables()
 
     def _read_snapshot(self) -> QuotaSnapshot:
         if codex_auth_available() is False:
-            return QuotaSnapshot(
-                updated_at=int(time.time()), source="login_required"
-            )
-        executable = self._codex_executable()
-        if executable is None:
-            return QuotaSnapshot(
-                updated_at=int(time.time()), source="codex_not_found"
-            )
-        process: subprocess.Popen[str] | None = None
-        try:
-            process = subprocess.Popen(
-                [executable, "app-server", "--stdio"],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
-            with self._process_lock:
-                self._process = process
-                if self._stop.is_set():
-                    process.terminate()
-            responses: queue.Queue[str] = queue.Queue()
-
-            def read_stdout() -> None:
-                assert process is not None and process.stdout is not None
-                for line in process.stdout:
-                    responses.put(line)
-                # Wake the response waiter if the app-server exits or is stopped.
-                responses.put("")
-
-            threading.Thread(target=read_stdout, name="codex-quota-output", daemon=True).start()
-
-            def send(message: dict[str, Any]) -> None:
-                assert process is not None and process.stdin is not None
-                process.stdin.write(json.dumps(message, separators=(",", ":")) + "\n")
-                process.stdin.flush()
-
-            send({
-                "id": 1,
-                "method": "initialize",
-                "params": {
-                    "clientInfo": {
-                        "name": "ai-agent-panel-reporter",
-                        "title": "AI Agent Panel Reporter",
-                        "version": "0.1.0",
-                    },
-                    "capabilities": {"experimentalApi": True},
-                },
-            })
-            self._wait_for_response(responses, 1, 10)
-            send({"method": "initialized"})
-            send({"id": 3, "method": "account/read", "params": {"refreshToken": False}})
-            account = self._wait_for_response(responses, 3, 10).get("result", {})
-            if account.get("account") is None:
-                return QuotaSnapshot(updated_at=int(time.time()), source="login_required")
-            send({"id": 2, "method": "account/rateLimits/read", "params": None})
-            response = self._wait_for_response(responses, 2, 15)
-            return self._parse_snapshot(response.get("result", {}))
-        except ValueError as error:
-            message = str(error).casefold()
-            source = "login_required" if any(
-                token in message for token in ("login", "auth", "unauthorized", "account")
-            ) else "unavailable"
-            logging.warning("Codex quota unavailable: %s", error)
-            return QuotaSnapshot(updated_at=int(time.time()), source=source)
-        except (OSError, queue.Empty, subprocess.SubprocessError) as error:
-            logging.warning("Codex quota unavailable: %s", error)
-            return QuotaSnapshot(
-                updated_at=int(time.time()), source="unavailable"
-            )
-        finally:
-            if process is not None and process.poll() is None:
-                process.terminate()
-                try:
-                    process.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait(timeout=2)
-            with self._process_lock:
-                self._process = None
-            if process is not None:
-                for pipe in (process.stdin, process.stdout):
-                    if pipe is not None:
-                        try:
-                            pipe.close()
-                        except OSError:
-                            pass
-
-    @staticmethod
-    def _wait_for_response(responses: queue.Queue[str], request_id: int,
-                           timeout: float) -> dict[str, Any]:
-        deadline = time.monotonic() + timeout
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise queue.Empty
-            message = json.loads(responses.get(timeout=remaining))
-            if message.get("id") == request_id:
-                if "error" in message:
-                    raise ValueError(str(message["error"]))
-                return message
+            self._close_connection()
+            return QuotaSnapshot(updated_at=int(time.time()), source="login_required")
+        # Recycle between polls, never while a request is in flight. This picks
+        # up external login changes and replaced app bundles without restarting.
+        connection = self._connection
+        if connection is not None and (
+                connection.process.poll() is not None
+                or time.monotonic() - connection.started_at >= self._CONNECTION_SECONDS):
+            self._close_connection()
+            connection = None
+        candidates = self._codex_executables()
+        if connection is not None:
+            candidates = [connection.executable] + [
+                path for path in candidates if path != connection.executable]
+        if not candidates:
+            return QuotaSnapshot(updated_at=int(time.time()), source="codex_not_found")
+        for executable in candidates:
+            if self._stop.is_set():
+                break
+            try:
+                with self._connection_lock:
+                    connection = self._connection
+                if connection is None:
+                    connection = AppServerConnection(executable)
+                    with self._connection_lock:
+                        self._connection = connection
+                    if self._stop.is_set():
+                        self._close_connection()
+                        break
+                    connection.initialize()
+                    logging.info("Codex quota connection ready: %s", executable)
+                account = connection.request("account/read", {"refreshToken": False})
+                if account.get("account") is None:
+                    self._close_connection()
+                    return QuotaSnapshot(updated_at=int(time.time()), source="login_required")
+                result = connection.request("account/rateLimits/read", timeout=15)
+                return self._parse_snapshot(result)
+            except CodexRPCError as error:
+                self._close_connection()
+                logging.warning("Codex quota unavailable: %s", error)
+                if error.login_required:
+                    return QuotaSnapshot(updated_at=int(time.time()), source="login_required")
+                if not error.unsupported:
+                    return QuotaSnapshot(updated_at=int(time.time()), source="unavailable")
+                # Unsupported protocol can fall through to another CLI version.
+            except (OSError, ValueError, TypeError, CodexConnectionError,
+                    subprocess.SubprocessError) as error:
+                self._close_connection()
+                # Log only controlled diagnostics, not arbitrary server text.
+                reason = str(error) if isinstance(error, CodexConnectionError) else type(error).__name__
+                logging.warning("Codex quota connection failed: %s (%s)", executable, reason)
+        return QuotaSnapshot(updated_at=int(time.time()), source="unavailable")
 
     @staticmethod
     def _parse_snapshot(result: dict[str, Any]) -> QuotaSnapshot:
@@ -635,7 +584,8 @@ class ReporterState:
     def __init__(self, identity: dict[str, str], collector: MetricsCollector,
                  agent_monitor: CodexAgentMonitor,
                  quota_collector: CodexQuotaCollector,
-                 media_monitor: NeteaseMediaMonitor, http_port: int = HTTP_PORT) -> None:
+                 media_monitor: NeteaseMediaMonitor, http_port: int = HTTP_PORT,
+                 electricity_monitor: ElectricityMonitor | None = None) -> None:
         self.http_port = http_port
         self.reporter_id = identity["reporter_id"]
         self.computer_name = identity["computer_name"]
@@ -645,9 +595,11 @@ class ReporterState:
         self.agent_monitor = agent_monitor
         self.quota_collector = quota_collector
         self.media_monitor = media_monitor
+        self.electricity_monitor = electricity_monitor
         self.started_at = int(time.time())
         self._devices_lock = threading.Lock()
         self._devices = {}
+        self._config_lock = threading.Lock()
 
     def record_device(self, peer_ip: str, board_id: str = "") -> None:
         if peer_ip.startswith("127."):
@@ -656,7 +608,10 @@ class ReporterState:
         with self._devices_lock:
             self._devices = {ip: entry for ip, entry in self._devices.items()
                              if now - entry["seen"] < 15}
-            self._devices[peer_ip] = {"seen": now, "board_id": board_id[:32]}
+            previous = self._devices.get(peer_ip, {})
+            token = previous.get("command_token") if previous.get("board_id") == board_id[:32] else None
+            self._devices[peer_ip] = {"seen": now, "board_id": board_id[:32],
+                                      "command_token": token or secrets.token_urlsafe(24)}
             if len(self._devices) > 32:
                 oldest = min(self._devices, key=lambda ip: self._devices[ip]["seen"])
                 del self._devices[oldest]
@@ -666,6 +621,23 @@ class ReporterState:
         with self._devices_lock:
             return [{"ip": ip, "last_seen_seconds": round(now - entry["seen"], 1)}
                     for ip, entry in self._devices.items() if now - entry["seen"] < 15]
+
+    def electricity(self) -> dict[str, Any]:
+        return self.electricity_monitor.snapshot() if self.electricity_monitor else {}
+
+    def command_token(self, peer_ip: str) -> str:
+        with self._devices_lock:
+            entry = self._devices.get(peer_ip, {})
+            return str(entry.get("command_token", "")) if entry.get("board_id") else ""
+
+    def authorize_command(self, peer_ip: str, token: str) -> bool:
+        if peer_ip in {"127.0.0.1", "::1"}:
+            return True
+        with self._devices_lock:
+            entry = self._devices.get(peer_ip, {})
+            expected = str(entry.get("command_token", ""))
+            return (bool(expected and token) and time.monotonic() - entry.get("seen", 0) < 15
+                    and secrets.compare_digest(expected, token))
 
     def _agent_snapshot(self) -> AgentSnapshot:
         if self.quota_collector.snapshot().source == "login_required":
@@ -686,6 +658,7 @@ class ReporterState:
             "agent": asdict(self._agent_snapshot()),
             "codex_quota": asdict(self.quota_collector.snapshot()),
             "media": asdict(self.media_monitor.snapshot()),
+            "electricity": self.electricity(),
         }
 
     def discovery(self, peer_ip: str) -> dict[str, Any]:
@@ -719,6 +692,8 @@ class ReporterState:
             "performance": asdict(self.collector.snapshot()),
             "ip": local_ip_for(peer_ip),
             "http_port": self.http_port,
+            "command_token": self.command_token(peer_ip),
+            "electricity": self.electricity(),
         }
 
 
@@ -737,6 +712,60 @@ def make_handler(state: ReporterState):
                 self._send_json({"pairing_token": state.pairing_token})
             else:
                 self._send_json({"error": "not_found"}, status=404)
+
+        def do_POST(self) -> None:  # noqa: N802
+            if self.path not in {"/api/v1/electricity/recharge", "/api/v1/electricity/check",
+                                 "/api/v1/electricity/dismiss", "/api/v1/electricity/config"}:
+                self._send_json({"error": "not_found"}, 404)
+                return
+            if self.headers.get("Content-Type", "").split(";", 1)[0] != "application/json":
+                self._send_json({"error": "json_required"}, 415)
+                return
+            origin = self.headers.get("Origin")
+            if origin and origin not in {f"http://127.0.0.1:{state.http_port}", f"http://localhost:{state.http_port}"}:
+                self._send_json({"error": "origin_rejected"}, 403)
+                return
+            if not state.authorize_command(self.client_address[0],
+                    self.headers.get("Authorization", "").removeprefix("Bearer ")):
+                self._send_json({"error": "unauthorized"}, 403)
+                return
+            if state.electricity_monitor is None:
+                self._send_json({"error": "electricity_unavailable"}, 503)
+                return
+            try:
+                size = int(self.headers.get("Content-Length", "0"))
+                if not 0 < size <= 1024:
+                    raise ValueError("invalid_request")
+                body = json.loads(self.rfile.read(size))
+                if not isinstance(body, dict):
+                    raise ValueError("invalid_request")
+                monitor = state.electricity_monitor
+                if self.path.endswith("/recharge"):
+                    if not monitor.request_payment(body.get("amount_yuan")):
+                        self._send_json({"error": "balance_not_ready_or_order_busy"}, 409)
+                        return
+                elif self.path.endswith("/check"):
+                    monitor.request_check()
+                elif self.path.endswith("/dismiss"):
+                    monitor.dismiss()
+                else:
+                    if self.client_address[0] not in {"127.0.0.1", "::1"}:
+                        self._send_json({"error": "local_settings_only"}, 403)
+                        return
+                    config = valid_config(body)
+                    with state._config_lock:
+                        path = config_path()
+                        identity = json.loads(path.read_text())
+                        identity["electricity"] = config
+                        temporary = path.with_suffix(".tmp")
+                        with open(temporary, "w", opener=lambda p, flags: os.open(p, flags, 0o600)) as handle:
+                            os.chmod(temporary, 0o600)
+                            handle.write(json.dumps(identity, ensure_ascii=False, indent=2))
+                        temporary.replace(path)
+                        monitor.update_config(config)
+                self._send_json({"ok": True, "electricity": monitor.snapshot()})
+            except (ValueError, TypeError, OSError):
+                self._send_json({"error": "invalid_request"}, 400)
 
         def _send_json(self, payload: dict[str, Any], status: int = 200) -> None:
             body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
@@ -805,7 +834,13 @@ class DiscoveryServer:
                     ensure_ascii=False,
                     separators=(",", ":"),
                 ).encode("utf-8")
-                sock.sendto(response, address)
+                try:
+                    sock.sendto(response, address)
+                except OSError as error:
+                    if error.errno not in {errno.EHOSTDOWN, errno.EHOSTUNREACH,
+                                          errno.ENETDOWN, errno.ENETUNREACH}:
+                        raise
+                    logging.warning("Discovery reply skipped: network unreachable (%s)", error.errno)
         finally:
             sock.close()
 
@@ -825,7 +860,9 @@ def run_worker(port: int) -> int:
     agent_monitor = CodexAgentMonitor()
     quota_collector = CodexQuotaCollector()
     media_monitor = NeteaseMediaMonitor()
-    state = ReporterState(identity, collector, agent_monitor, quota_collector, media_monitor, port)
+    electricity_monitor = ElectricityMonitor(identity.get("electricity", {}), config_path().with_name("electricity-history.json"))
+    state = ReporterState(identity, collector, agent_monitor, quota_collector, media_monitor, port,
+                          electricity_monitor)
     discovery = DiscoveryServer(state)
     http_server = ReporterHTTPServer(("0.0.0.0", port), make_handler(state))
     http_server.daemon_threads = True
@@ -833,6 +870,7 @@ def run_worker(port: int) -> int:
     collector.start()
     quota_collector.start()
     media_monitor.start()
+    electricity_monitor.start()
     discovery.start()
     print(f"Reporter ID: {state.reporter_id}", flush=True)
     print(f"Computer: {state.computer_name}", flush=True)
@@ -848,6 +886,7 @@ def run_worker(port: int) -> int:
         discovery.stop()
         quota_collector.stop()
         media_monitor.stop()
+        electricity_monitor.stop()
         collector.stop()
     return 0
 

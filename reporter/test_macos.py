@@ -55,7 +55,8 @@ class MacSupportTests(unittest.TestCase):
             executable.parent.mkdir(parents=True)
             executable.touch()
             executable.chmod(0o755)
-            self.assertEqual(platform_support.codex_executable(), str(executable))
+            with patch.object(Path, "is_file", lambda path: path == executable):
+                self.assertEqual(platform_support.codex_executable(), str(executable))
 
     def test_mac_login_is_not_inferred_from_auth_file(self):
         with patch.object(Path, "read_text", side_effect=AssertionError("must use app-server")):
@@ -70,17 +71,14 @@ class MacSupportTests(unittest.TestCase):
             self.assertTrue(reporter.CodexAgentMonitor._codex_running())
 
     def test_logged_out_app_server_clears_quota(self):
-        process = MagicMock()
-        process.stdout.__iter__.return_value = iter([])
-        process.poll.return_value = 0
-        with patch.object(reporter.CodexQuotaCollector, "_codex_executable", return_value="codex"), \
-                patch.object(reporter.subprocess, "Popen", return_value=process), \
-                patch.object(reporter.CodexQuotaCollector, "_wait_for_response", side_effect=[
-                    {"result": {}}, {"result": {"account": None}}
-                ]):
+        connection = MagicMock()
+        connection.request.return_value = {"account": None}
+        with patch.object(reporter.CodexQuotaCollector, "_codex_executables", return_value=["codex"]), \
+                patch.object(reporter, "AppServerConnection", return_value=connection):
             snapshot = reporter.CodexQuotaCollector()._read_snapshot()
             self.assertEqual(snapshot.source, "login_required")
             self.assertIsNone(snapshot.week_remaining_percent)
+            connection.close.assert_called_once()
 
     def test_shutdown_terminates_unresponsive_quota_child(self):
         collector = reporter.CodexQuotaCollector()
@@ -92,15 +90,15 @@ class MacSupportTests(unittest.TestCase):
             children.append(child)
             return child
 
-        with patch.object(collector, "_codex_executable", return_value="codex"), \
+        with patch.object(collector, "_codex_executables", return_value=["codex"]), \
                 patch.object(reporter.subprocess, "Popen", side_effect=spawn), \
                 patch.object(reporter.logging, "warning"):
             collector.start()
             try:
                 deadline = time.monotonic() + 3
-                while collector._process is None and time.monotonic() < deadline:
+                while collector._connection is None and time.monotonic() < deadline:
                     time.sleep(0.02)
-                self.assertIsNotNone(collector._process)
+                self.assertIsNotNone(collector._connection)
                 collector.stop()
                 self.assertFalse(collector._thread.is_alive())
                 self.assertTrue(all(child.poll() is not None for child in children))

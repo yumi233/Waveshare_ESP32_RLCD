@@ -1,15 +1,14 @@
 # macOS Reporter 使用说明
 
-本轮完成的是电脑端 Reporter 的 macOS 基础适配，沿用现有开发板的 V1 UDP 协议。
-不需要为接入 Mac 更换开发板固件。实际屏幕显示和跨设备发现仍需开发板联调。
+本版整合 macOS Reporter、Codex 额度恢复、宿舍余电与扫码充值提醒。沿用 V1 UDP 协议并增加用电快照和受限命令接口；新充值页和预计天数需要配套新版固件。
 
 ## 启动
 
-推荐双击 `dist-macos/SynaReporter.app`，直接打开 Mac 原生状态窗口。
+推荐双击 `dist-macos/SynaReporter.app`，应用在菜单栏后台启动，点击波形图标打开状态窗口。
 也可以双击本目录 `start.command`：检测到已构建应用时会打开同一个窗口。
 窗口每秒显示服务状态、CPU／内存／磁盘、网络速度、Codex 状态与额度，以及最近收到的开发板请求。
 “停止服务／启动服务”控制本窗口启动的后台程序；“查看诊断”打开只读接口，“打开日志”定位日志目录。
-关闭窗口后继续后台运行，点击 Dock 图标或按 Command+0 可再次显示；Command+Q 退出并停止所管理的服务。
+应用默认在菜单栏后台运行，不占 Dock。点击菜单栏波形图标可显示状态窗口、查看额度、诊断或退出；关闭窗口仍继续采集。
 如果服务原本由其他进程启动，窗口只查看它的状态，不会擅自结束该进程。
 也可在终端执行：
 
@@ -23,8 +22,8 @@ cd "/你的项目路径/reporter"
 本机已创建并验证 `.venv-macos`。源码运行时，如果其他 Mac 没有 Python，需要先安装 Python 3.9+；
 可通过 `SYNA_PYTHON=/绝对路径/python3 ./start.command` 指定解释器。
 
-运行后可打开 `http://127.0.0.1:8765/api/v1/status` 查看数据，
-`http://127.0.0.1:8765/api/v1/health` 查看服务状态。
+运行后可打开 `http://127.0.0.1:18765/api/v1/status` 查看数据，
+`http://127.0.0.1:18765/api/v1/health` 查看服务状态。
 电脑和开发板需连接同一可互访的 Wi-Fi；系统询问本地网络访问时允许 Reporter 使用。
 不要把诊断接口或 UDP 端口映射到互联网。
 
@@ -32,7 +31,7 @@ cd "/你的项目路径/reporter"
 
 | 功能 | macOS 基础版 |
 | --- | --- |
-| UDP 8766 发现、稳定电脑身份、绑定指纹 | 已实现，本机协议测试通过；待开发板联调 |
+| UDP 8766 发现、稳定电脑身份、绑定指纹 | 已实现；2026-10-10 已检查设备发现和重新联网 |
 | CPU、内存、磁盘、上传／下载速度 | 已在 Apple 芯片 Mac 实测 |
 | 磁盘使用率 | 优先读取 APFS 数据卷 `/System/Volumes/Data`，避免只统计只读系统卷 |
 | Codex 进程和本地状态 | 支持 Mac 进程名称；数据库只查询原有状态字段和工作区路径 |
@@ -40,6 +39,7 @@ cd "/你的项目路径/reporter"
 | 网易云音乐 | 已接入普通启动的 Mac 客户端：歌曲、歌手、播放／暂停、真实进度、总时长及歌词 |
 | 音乐数据来源 | Mac 读取系统 Now Playing；Windows 原有 CDP／本地读取路线保留 |
 | GPU 使用率、CPU／GPU 温度 | Apple M5 实测可用，无需管理员权限；不可用时返回 `null` |
+| 宿舍用电 / 预计天数 / 充值提醒 | 状态页入口，默认 10 度提醒，100 / 50 元扫码；首次统计需满 24 小时 |
 | 后台恢复、单实例、日志 | 已实现；另提供可选的用户级 launchd 管理脚本 |
 
 没有可靠音乐数据时返回 `media.available=false`，设备按现有逻辑显示“未播放”。
@@ -98,7 +98,7 @@ clang -O2 -Wall -Wextra -framework IOKit macos_thermal.c -o .macos-tools/MacTher
 
 已生成 Apple 芯片版本：`dist-macos/SynaReporter.app`。
 它包含 Swift / AppKit 原生状态窗口，以及 Python Reporter 后台。
-双击后自动打开窗口并启动服务；若已有服务运行，则直接显示它的实时状态。
+双击后在菜单栏后台启动服务；若已有服务运行，则连接该服务。
 页面明确显示运行／停止／连接中断；中断时清除旧数值，避免把缓存误认为实时数据。
 开发板通信栏仅表示最近 15 秒收到发现请求，不表示开发板已经选中本机。
 本机包使用临时签名，尚未做 Developer ID 签名、公证；不是已完成公开发行的安装包。
@@ -117,7 +117,7 @@ clang -O2 -Wall -Wextra -framework IOKit macos_thermal.c -o .macos-tools/MacTher
 ## 登录后自动运行
 
 在应用窗口底部打开“登录时自动启动”（需要 macOS 13+）。开关读取系统真实状态，
-开启后下次登录当前 Mac 账户会打开应用窗口并启动 Reporter；关闭不影响当前服务。
+开启后下次登录当前 Mac 账户会在菜单栏启动 Reporter；关闭不影响当前服务。
 若显示“等待系统允许”，点击“系统登录项”前往系统设置允许；在系统设置中更改后，窗口会自动同步。
 关闭窗口仍继续运行，Command+Q 只退出本次运行，不取消下次登录自启动。
 请将应用放在固定位置；移动或替换应用后重新检查开关。实际注销／登录效果需在方便时验收。
@@ -157,8 +157,8 @@ launchd 标准输出另记录为 `launchd.stdout.log`、`launchd.stderr.log`。
 - `SYNA_CODEX_EXECUTABLE`：指定 Codex 可执行文件绝对路径。
 - `CODEX_HOME`：沿用 Codex 的数据目录设置。
 
-程序依次查找 PATH、常见 Codex.app／CLI 位置和 VS Code 扩展内的 Mac 可执行文件。
-当前 Mac 的 VS Code 扩展路径已验证。Codex 更新后路径变化，重新安装后台服务可刷新其固定路径。
+程序优先使用有效的 `SYNA_CODEX_EXECUTABLE`，然后检查 ChatGPT.app／Codex.app 内的原生 CLI、npm 平台包内的原生 CLI、VS Code 扩展，最后尝试 PATH 或 Homebrew 的启动脚本。原生 CLI 不需要 Node，也不依赖 Finder 的 PATH。某个候选连接失败会自动尝试其他版本。
+额度使用独立的 stdio 长连接，每 30 秒查询一次，每 5 分钟在轮询前重建连接以重新加载登录和安装状态；不启动或修改 Codex daemon。断开、超时或协议不兼容会清理子进程并重连。短暂失败时保留最多 120 秒且明确标注的缓存，超时或周期到期清除。日志只记录退出码和固定故障分类，不保存原始 stderr。
 Mac 登录状态由 `account/read` 决定，不直接读取认证文件或钥匙串内容；额度通过 `account/rateLimits/read` 获取。
 
 ## 验证
@@ -175,14 +175,11 @@ SYNA_TEST_APP="$PWD/dist-macos/SynaReporter.app/Contents/MacOS/SynaReporter" \
 接板验收：发现 Mac → 选择 Mac → 核对性能数据 → 核对 Codex 状态和额度 →
 停止／重启 Reporter → 断开／恢复 Wi-Fi → Mac 休眠／唤醒。
 
-## 工程边界
+## 固件与当前验证范围
 
-本轮没有改动或烧录 `src/`、`xiaozhi/overlay/` 中的固件，也没有迁移全部开发工具。
-`platformio.ini` 的 Windows 构建目录、`xiaozhi/apply-ui-overlay.ps1`、模拟器的 Windows 构建脚本，
-以及基于 System.Drawing 的字体／图片生成脚本仍保留原样。
-它们不影响本轮 Mac Reporter 使用已有固件；如果需要在 Mac 上重建整个固件和资源，需另做工具链迁移与验证。
+本版配套固件已加入用电预计天数、充值页和后台耗电优化。Mac 构建入口为 `xiaozhi/build_macos.sh`，统一步骤见 [构建说明](../docs/BUILD.md)。2026-10-10 的本机固件已完成刷写、联网和音频初始化检查；本次发布范围和重新运行的验证见 [发布记录](../docs/RELEASE_VALIDATION_2026-10-20.md)。
 
-适配前备份：项目根目录 `备份_适配mac前_20260909_130845/`，复制后按 SHA-256 校验了 9,803 个文件。
+本源码 Release 不包含新的已签名或公证应用。用户配置和用电历史仅保存在应用私有数据目录，不包含在源码包中。
 
 参考：[psutil 支持范围](https://psutil.readthedocs.io/stable/index.html)、
 [PyInstaller 打包说明](https://pyinstaller.org/en/stable/usage.html)、

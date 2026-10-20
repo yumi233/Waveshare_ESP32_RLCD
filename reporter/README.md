@@ -27,14 +27,14 @@ powershell -ExecutionPolicy Bypass -File .\reporter\start.ps1
 
 首次运行会在 `reporter/.venv` 创建独立 Python 环境并安装 `psutil` 与 Windows Runtime 媒体接口。Reporter 监听：
 
-- HTTP `8765`：`/api/v1/health`、`/api/v1/status`
+- HTTP：Windows `8765`，macOS `18765`（避开 AgentDock 的默认端口）；`/api/v1/health`、`/api/v1/status`
 - UDP `8766`：响应 `AI_PANEL_DISCOVER_V1`，同时返回电脑身份、Agent 状态和性能快照
 
 稳定的 `reporter_id` 与电脑名称保存在 `%LOCALAPPDATA%\AIAgentPanel\reporter.json`。
 
 Reporter 首次启动还会生成随机配对令牌及指纹。新开发板会自动保存首次发现的稳定 Reporter ID 与指纹，无需用户复制令牌；手动令牌仅用于旧固件兼容或高级过滤。本机诊断接口 `http://127.0.0.1:8765/api/v1/pairing` 仍仅允许本机访问，不向局域网返回明文令牌。
 
-当前版本只开放只读状态接口，不读取提示词、代码、文件内容或 API Key。首次局域网测试若 Windows 弹出防火墙提示，只允许“专用网络”。
+状态采集不读取提示词、代码、文件内容或 API Key。电费功能另有受限的 POST 命令接口，用于配置、生成待支付码、查询和关闭提醒，见 [接口说明](../docs/PROTOCOL.md)。首次局域网测试若 Windows 弹出防火墙提示，只允许“专用网络”。
 
 开发板与电脑必须连接同一个允许设备互访的 Wi-Fi 或手机热点。启动成功后可在电脑浏览器检查：
 
@@ -55,11 +55,13 @@ Reporter 优先从 Codex 本地 `logs_2.sqlite` 提取固定格式的任务开�
 
 ## Codex 额度
 
-Reporter 每 30 秒通过本机 Codex App Server 的 `account/rateLimits/read` 读取账户限额，把 `usedPercent` 换算为剩余百分比，并按 `windowDurationMins` 区分短周期额度和周额度。数据通过 UDP 随电脑状态一并发送给屏幕；某个周期没有可靠数据时显示 `--`，不会用固定值或本地 token 消耗量估算。
+Reporter 复用本机 Codex App Server 的独立 stdio 连接，每 30 秒通过 `account/rateLimits/read` 读取账户限额，把 `usedPercent` 换算为剩余百分比，并按 `windowDurationMins` 区分短周期额度和周额度。数据通过 UDP 随电脑状态一并发送给屏幕；某个周期没有可靠数据时显示 `--`，不会用固定值或本地 token 消耗量估算。
 
 这一过程使用当前电脑已登录的 Codex 客户端，仅调用只读限额接口，不读取认证令牌、提示词、对话或代码。Codex 客户端升级后若本地 App Server 协议变化，需要同步更新 Reporter 适配器。
 
-Codex 未登录时 Reporter 会立刻清除旧额度，上报登录所需状态；屏幕显示“请登录”，两项额度显示 `--`。登录成功后最迟在下一次 30 秒轮询恢复。
+优先使用桌面应用或 npm 平台包内不依赖 Node 的原生 Codex，连接失败后自动尝试其他候选版本；不按文件修改时间误选 npm 启动脚本。连接每 5 分钟在轮询前重建，以重新加载登录状态和安装路径。临时故障最多保留 120 秒缓存并标注“缓存”，超时或额度窗口到期即清除。退出日志只记录退出码和固定故障分类，不记录原始 stderr。
+
+Codex 未登录时 Reporter 会清除旧额度，上报登录所需状态；屏幕显示“请登录”，两项额度显示 `--`。登录成功后最迟在下一次 30 秒轮询恢复。
 
 ## 网易云音乐与歌词
 
@@ -84,3 +86,7 @@ ESP32 的实时数据链路使用 UDP 请求/响应，因此不需要为 HTTP `8
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\reporter\build_release.ps1 -Version 1.0.0
 ```
+
+## 宿舍用电与充值（本版新增）
+
+macOS 状态页的「电费 / 充值」可配置宿舍和默认 10 度的提醒阈值，生成学校 100 / 50 元待支付二维码，并查询结果。余电、预计天数和二维码同步给同一宿舍的 RLCD。Windows 共用后端，但本版尚未增加图形配置 / 充值窗口，未重新做 Windows 集成验收。详见 [用电与充值](../docs/ELECTRICITY_RECHARGE.md) 与 [功能索引](../docs/FEATURES.md)。

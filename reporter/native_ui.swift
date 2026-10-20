@@ -2,13 +2,16 @@
 import Cocoa
 import Foundation
 import ServiceManagement
+import CoreImage
 
 final class Canvas: NSView {
     override var isFlipped: Bool { true }
 }
 
-final class ReporterApp: NSObject, NSApplicationDelegate {
+final class ReporterApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var window: NSWindow!
+    var statusItem: NSStatusItem!
+    var menuQuota: NSMenuItem!
     var backend: Process?
     var timer: Timer?
     var polling = false
@@ -17,7 +20,7 @@ final class ReporterApp: NSObject, NSApplicationDelegate {
     var quitting = false
     var lastSuccess: Date?
     var launchedAt: Date?
-    let port = 8765
+    let port = 18765
     let ink = NSColor(calibratedRed: 0.13, green: 0.20, blue: 0.23, alpha: 1)
     let muted = NSColor(calibratedRed: 0.43, green: 0.49, blue: 0.50, alpha: 1)
     let green = NSColor(calibratedRed: 0.12, green: 0.46, blue: 0.36, alpha: 1)
@@ -43,6 +46,30 @@ final class ReporterApp: NSObject, NSApplicationDelegate {
     var loginSwitch: NSSwitch!
     var loginStatus: NSTextField!
     var loginSettings: NSButton!
+    var electricitySummary: NSTextField!
+    var electricityForecast: NSTextField!
+    var electricityButton: NSButton!
+    var electricityWindow: NSWindow?
+    var electricityQR: NSImageView!
+    var electricityPlaceholder: NSTextField!
+    var electricityBalance: NSTextField!
+    var electricityMeta: NSTextField!
+    var electricityCountdown: NSTextField!
+    var electricityBuilding: NSTextField!
+    var electricityRoom: NSTextField!
+    var electricityThreshold: NSTextField!
+    var electricityAmount100: NSButton!
+    var electricityAmount50: NSButton!
+    var electricityGenerate: NSButton!
+    var electricityCheck: NSButton!
+    var electricityLater: NSButton!
+    var electricityAlertID: Int?
+    var electricityVisible = false
+    var electricityAmount = 100
+    var latestElectricity: [String: Any] = [:]
+    var electricityDismissed = false
+    var electricityPosting = false
+    var electricityRequestError: String?
     let session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 2
@@ -61,7 +88,8 @@ final class ReporterApp: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.regular)
+        NSApp.setActivationPolicy(.accessory)
+        NSApp.appearance = NSAppearance(named: .aqua)
         if CommandLine.arguments.contains("--installer-enable-login") {
             if #available(macOS 13.0, *) {
                 do {
@@ -75,7 +103,7 @@ final class ReporterApp: NSObject, NSApplicationDelegate {
         }
         buildMenu()
         buildWindow()
-        showWindow()
+        buildStatusItem()
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.refresh() }
     }
@@ -91,6 +119,29 @@ final class ReporterApp: NSObject, NSApplicationDelegate {
         menu.addItem(appItem)
         NSApp.mainMenu = menu
     }
+
+    func buildStatusItem() {
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        if let button = statusItem.button {
+            button.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Syna Reporter")
+            button.image?.isTemplate = true
+            button.toolTip = "Syna Reporter · 电脑状态与 Codex 额度"
+        }
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        menuQuota = NSMenuItem(title: "Codex 额度读取中…", action: nil, keyEquivalent: "")
+        menuQuota.isEnabled = false
+        menu.addItem(menuQuota)
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(withTitle: "显示状态窗口", action: #selector(showWindow), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "查看诊断", action: #selector(openDiagnostic), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "打开日志", action: #selector(openLogs), keyEquivalent: "").target = self
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(withTitle: "退出 Reporter", action: #selector(quitReporter), keyEquivalent: "").target = self
+        statusItem.menu = menu
+    }
+
+    @objc func quitReporter() { NSApp.terminate(nil) }
 
     @discardableResult
     func text(_ parent: NSView, _ value: String, _ x: CGFloat, _ y: CGFloat,
@@ -168,7 +219,15 @@ final class ReporterApp: NSObject, NSApplicationDelegate {
 
         let board = card(page, NSRect(x: 28, y: 538, width: 704, height: 72))
         text(board, "开发板通信", 20, 12, 180, 22, 12, .medium, muted)
-        device = text(board, "等待开发板请求", 20, 37, 660, 24, 14, .medium)
+        device = text(board, "等待开发板请求", 20, 37, 320, 24, 14, .medium)
+        electricitySummary = text(board, "电费：读取中…", 360, 12, 205, 22, 12, .medium, muted)
+        electricitySummary.alignment = .right
+        electricityForecast = text(board, "预计天数统计中", 360, 37, 205, 22, 12, .regular, muted)
+        electricityForecast.alignment = .right
+        electricityButton = NSButton(title: "电费 / 充值", target: self, action: #selector(openElectricity))
+        electricityButton.bezelStyle = .rounded
+        electricityButton.frame = NSRect(x: 573, y: 18, width: 110, height: 34)
+        board.addSubview(electricityButton)
 
         toggle = NSButton(title: "正在检查…", target: self, action: #selector(toggleService))
         toggle.bezelStyle = .rounded
@@ -202,7 +261,7 @@ final class ReporterApp: NSObject, NSApplicationDelegate {
         loginSettings.frame = NSRect(x: 618, y: 671, width: 118, height: 32)
         page.addSubview(loginSettings)
         refreshLoginStatus()
-        text(page, "关闭窗口后继续运行 · 退出应用时停止服务", 29, 718, 700, 20, 11, .regular, muted)
+        text(page, "关闭窗口后驻留菜单栏 · 菜单栏可重新打开或退出", 29, 718, 700, 20, 11, .regular, muted)
         window.center()
     }
 
@@ -281,7 +340,21 @@ final class ReporterApp: NSObject, NSApplicationDelegate {
         let count = (state["active_count"] as? NSNumber)?.intValue ?? 0
         agent.stringValue = (names[code] ?? "状态不可用") + (code == "working" ? "  ·  \(count) 个任务" : "")
         let limits = body["codex_quota"] as? [String: Any] ?? [:]
-        quota.stringValue = "短周期剩余 \(percent(limits["short_remaining_percent"]))    ·    周额度剩余 \(percent(limits["week_remaining_percent"]))"
+        let cached = limits["stale"] as? Bool == true
+        let quotaSource = limits["source"] as? String ?? "unavailable"
+        var values: [String] = []
+        if limits["short_remaining_percent"] is NSNumber {
+            values.append("短周期剩余 " + percent(limits["short_remaining_percent"]))
+        }
+        if limits["week_remaining_percent"] is NSNumber {
+            values.append("周额度剩余 " + percent(limits["week_remaining_percent"]))
+        }
+        let unavailable = quotaSource == "login_required" ? "请先登录 Codex"
+            : (quotaSource == "codex_not_found" ? "未找到 Codex 客户端" : "额度暂不可用，正在重试")
+        let quotaText = values.isEmpty ? unavailable : values.joined(separator: "  ·  ")
+        quota.stringValue = quotaText + (cached ? "（缓存）" : "")
+        quota.toolTip = quota.stringValue
+        menuQuota?.title = "Codex · " + quota.stringValue
         let media = body["media"] as? [String: Any] ?? [:]
         if media["available"] as? Bool == true {
             musicTitle.stringValue = media["title"] as? String ?? ""
@@ -305,6 +378,7 @@ final class ReporterApp: NSObject, NSApplicationDelegate {
         device.stringValue = peers.isEmpty ? "尚未收到请求，请确认开发板与 Mac 连接同一 Wi-Fi。"
             : "已收到 \(peers.count) 台开发板请求  ·  \(ips)"
         device.toolTip = "表示最近 15 秒收到发现请求，不代表开发板已选中本机。"
+        renderElectricity(body["electricity"] as? [String: Any] ?? [:])
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss"
         updated.stringValue = "最近更新  " + formatter.string(from: Date())
@@ -315,7 +389,7 @@ final class ReporterApp: NSObject, NSApplicationDelegate {
 
     func offline() {
         let starting = backend?.isRunning == true && launchedAt.map { Date().timeIntervalSince($0) < 8 } == true
-        statusLabel.stringValue = stopping ? "正在停止…" : (starting ? "正在启动…" : "○  服务未运行")
+        statusLabel.stringValue = stopping ? "正在停止…" : (starting ? "正在启动…" : (backend?.isRunning == true ? "○  服务连接异常" : "○  服务未运行"))
         statusLabel.textColor = starting ? green : .systemOrange
         detailLabel.stringValue = starting ? "正在初始化采集与网络服务。" : "暂无实时数据。点击启动服务，或打开日志查看原因。"
         for label in [cpu, gpu, memory, disk] { label?.stringValue = "—" }
@@ -329,11 +403,251 @@ final class ReporterApp: NSObject, NSApplicationDelegate {
         musicTitle.toolTip = nil
         musicDetail.toolTip = nil
         quota.stringValue = "短周期剩余 —    ·    周额度剩余 —"
+        menuQuota?.title = "Reporter 暂未连接服务"
         device.stringValue = "服务停止时，不向开发板发送数据。"
+        electricitySummary.stringValue = "电费：服务未连接"
+        electricityForecast.stringValue = "预计天数：—"
+        electricityButton.isEnabled = false
+        if electricityVisible {
+            electricityQR.image = nil
+            electricityMeta.stringValue = "服务连接中断，请重试。"
+            electricityCountdown.stringValue = "二维码已隐藏"
+            electricityGenerate.isEnabled = false
+        }
         updated.stringValue = lastSuccess == nil ? "尚未连接服务" : "连接中断，已清除旧数据"
         toggle.title = backend?.isRunning == true ? "停止服务" : "启动服务"
         toggle.isEnabled = !stopping && !initialCheck
         diagnostic.isEnabled = false
+    }
+
+    func renderElectricity(_ electricity: [String: Any]) {
+        latestElectricity = electricity
+        electricityButton.isEnabled = true
+        let configured = electricity["configured"] as? Bool ?? false
+        let available = electricity["available"] as? Bool ?? false
+        let stale = electricity["stale"] as? Bool ?? false
+        if !configured {
+            electricitySummary.stringValue = "宿舍用电：未配置"
+        } else if available, let remaining = electricity["remaining_kwh"] as? NSNumber {
+            electricitySummary.stringValue = String(format: "剩余 %.2f 度%@", remaining.doubleValue, stale ? "（缓存）" : "")
+        } else {
+            electricitySummary.stringValue = "宿舍用电：暂不可用"
+        }
+        if let days = electricity["estimated_days"] as? NSNumber, available {
+            electricityForecast.stringValue = String(format: "预计可用 %.1f 天%@", days.doubleValue, stale ? "（缓存）" : "")
+        } else { electricityForecast.stringValue = configured ? "预计天数统计中" : "" }
+        let alert = electricity["show_alert"] as? Bool ?? false
+        if !alert { electricityDismissed = false; electricityAlertID = nil }
+        if alert && !electricityDismissed && electricityAlertID == nil {
+            electricityAlertID = (electricity["alert_id"] as? NSNumber)?.intValue ?? 0
+            electricityAmount = (electricity["payment_amount_yuan"] as? NSNumber)?.intValue == 50 ? 50 : 100
+            openElectricity()
+        }
+        if electricityVisible { updateElectricityWindow(electricity) }
+    }
+
+    func postElectricity(_ path: String, body: [String: Any] = [:]) {
+        guard !electricityPosting else { return }
+        var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/api/v1/electricity/\(path)")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        electricityPosting = true
+        electricityRequestError = nil
+        if path == "recharge" { electricityQR?.image = nil }
+        session.dataTask(with: request) { [weak self] data, response, error in
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            let result = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.electricityPosting = false
+                if error != nil || code != 200 {
+                    self.electricityRequestError = code == 409 ? "请等待余额更新或订单生成完成后重试。" : "操作失败，请检查连接后重试。"
+                    self.electricityQR?.image = nil
+                } else if let snapshot = result?["electricity"] as? [String: Any] {
+                    self.renderElectricity(snapshot)
+                }
+                self.refresh()
+            }
+        }.resume()
+    }
+
+    @objc func openElectricity() {
+        if electricityWindow == nil { buildElectricityWindow() }
+        guard let electricityWindow else { return }
+        if !electricityVisible {
+            let building = (latestElectricity["building"] as? NSNumber)?.intValue ?? 0
+            let room = (latestElectricity["room"] as? NSNumber)?.intValue ?? 0
+            electricityBuilding.stringValue = building > 0 ? String(building) : ""
+            electricityRoom.stringValue = room > 0 ? String(room) : ""
+            electricityThreshold.stringValue = String(format: "%.0f", (latestElectricity["threshold_kwh"] as? NSNumber)?.doubleValue ?? 10)
+        }
+        electricityVisible = true
+        electricityAmount100.state = electricityAmount == 100 ? .on : .off
+        electricityAmount50.state = electricityAmount == 50 ? .on : .off
+        updateElectricityWindow(latestElectricity)
+        electricityWindow.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func buildElectricityWindow() {
+        let panel = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 530),
+                             styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        panel.title = "夏柠 · 宿舍用电"
+        panel.isReleasedWhenClosed = false
+        panel.backgroundColor = NSColor(calibratedRed: 0.96, green: 0.97, blue: 0.96, alpha: 1)
+        panel.delegate = self
+        let page = Canvas(frame: NSRect(x: 0, y: 0, width: 620, height: 530))
+        panel.contentView = page
+        text(page, "宿舍用电", 28, 24, 290, 35, 27, .semibold)
+        electricityBalance = text(page, "剩余电量：—", 30, 78, 300, 30, 20, .medium, green)
+        electricityMeta = text(page, "等待数据", 30, 119, 300, 72, 13, .regular, muted)
+        electricityMeta.maximumNumberOfLines = 3
+        electricityMeta.cell?.wraps = true
+        _ = card(page, NSRect(x: 370, y: 24, width: 220, height: 220), .white)
+        electricityPlaceholder = text(page, "生成充值码后\n用微信扫码付款", 382, 108, 196, 48, 14, .regular, muted)
+        electricityPlaceholder.maximumNumberOfLines = 2
+        electricityPlaceholder.alignment = .center
+        electricityPlaceholder.cell?.wraps = true
+        electricityQR = NSImageView(frame: NSRect(x: 370, y: 24, width: 220, height: 220))
+        electricityQR.imageScaling = .scaleNone
+        electricityQR.imageAlignment = .alignCenter
+        electricityQR.wantsLayer = true
+        electricityQR.layer?.magnificationFilter = .nearest
+        electricityQR.layer?.minificationFilter = .nearest
+        page.addSubview(electricityQR)
+        electricityCountdown = text(page, "选择金额后生成二维码", 342, 250, 248, 24, 12, .medium, muted)
+        electricityCountdown.alignment = .center
+        let form = card(page, NSRect(x: 28, y: 290, width: 564, height: 116), NSColor.white)
+        text(form, "充值金额", 20, 14, 90, 22, 12, .medium, muted)
+        electricityAmount100 = NSButton(radioButtonWithTitle: "100 元", target: self, action: #selector(selectElectricityAmount(_:)))
+        electricityAmount100.frame = NSRect(x: 112, y: 10, width: 90, height: 28)
+        electricityAmount100.tag = 100
+        form.addSubview(electricityAmount100)
+        electricityAmount50 = NSButton(radioButtonWithTitle: "50 元", target: self, action: #selector(selectElectricityAmount(_:)))
+        electricityAmount50.frame = NSRect(x: 205, y: 10, width: 85, height: 28)
+        electricityAmount50.tag = 50
+        form.addSubview(electricityAmount50)
+        text(form, "楼栋", 20, 53, 38, 22, 12, .medium, muted)
+        electricityBuilding = editableField(form, "", 58, 48, 65, 28)
+        text(form, "房间", 137, 53, 38, 22, 12, .medium, muted)
+        electricityRoom = editableField(form, "", 175, 48, 65, 28)
+        text(form, "提醒阈值", 255, 53, 65, 22, 12, .medium, muted)
+        electricityThreshold = editableField(form, "10", 320, 48, 55, 28)
+        text(form, "度", 380, 53, 25, 22, 12, .medium, muted)
+        let save = NSButton(title: "保存设置", target: self, action: #selector(saveElectricitySettings))
+        save.bezelStyle = .rounded
+        save.frame = NSRect(x: 425, y: 46, width: 115, height: 32)
+        form.addSubview(save)
+        electricityGenerate = NSButton(title: "生成充值码", target: self, action: #selector(generateElectricityQR))
+        electricityGenerate.bezelStyle = .rounded
+        electricityGenerate.frame = NSRect(x: 28, y: 430, width: 142, height: 34)
+        page.addSubview(electricityGenerate)
+        electricityCheck = NSButton(title: "查询支付结果", target: self, action: #selector(checkElectricityPayment))
+        electricityCheck.bezelStyle = .rounded
+        electricityCheck.frame = NSRect(x: 184, y: 430, width: 142, height: 34)
+        page.addSubview(electricityCheck)
+        electricityLater = NSButton(title: "稍后再付", target: self, action: #selector(dismissElectricity))
+        electricityLater.bezelStyle = .rounded
+        electricityLater.frame = NSRect(x: 340, y: 430, width: 110, height: 34)
+        page.addSubview(electricityLater)
+        text(page, "用微信扫描学校充值码完成付款，电量到账可能稍有延迟。", 28, 486, 564, 22, 12, .regular, muted)
+        panel.center()
+        electricityWindow = panel
+    }
+
+    func editableField(_ parent: NSView, _ value: String, _ x: CGFloat, _ y: CGFloat, _ width: CGFloat, _ height: CGFloat) -> NSTextField {
+        let field = NSTextField(string: value)
+        field.frame = NSRect(x: x, y: y, width: width, height: height)
+        field.alignment = .center
+        parent.addSubview(field)
+        return field
+    }
+
+    @objc func selectElectricityAmount(_ sender: NSButton) {
+        electricityAmount = sender.tag
+        electricityAmount100.state = electricityAmount == 100 ? .on : .off
+        electricityAmount50.state = electricityAmount == 50 ? .on : .off
+    }
+
+    @objc func saveElectricitySettings() {
+        guard let building = Int(electricityBuilding.stringValue), (1...999).contains(building),
+              let room = Int(electricityRoom.stringValue), (1...9999).contains(room),
+              let threshold = Double(electricityThreshold.stringValue), threshold.isFinite, (1...100).contains(threshold) else {
+            electricityRequestError = "请填写有效楼栋、房间和 1～100 度提醒阈值。"
+            updateElectricityWindow(latestElectricity)
+            return
+        }
+        postElectricity("config", body: ["building": building, "room": room, "threshold_kwh": threshold, "enabled": true])
+    }
+
+    @objc func generateElectricityQR() {
+        let building = (latestElectricity["building"] as? NSNumber)?.intValue
+        let room = (latestElectricity["room"] as? NSNumber)?.intValue
+        let threshold = (latestElectricity["threshold_kwh"] as? NSNumber)?.doubleValue
+        guard Int(electricityBuilding.stringValue) == building, Int(electricityRoom.stringValue) == room,
+              Double(electricityThreshold.stringValue) == threshold else {
+            electricityRequestError = "设置已修改，请先保存，等余额更新后再充值。"
+            updateElectricityWindow(latestElectricity)
+            return
+        }
+        postElectricity("recharge", body: ["amount_yuan": electricityAmount])
+        updateElectricityWindow(latestElectricity)
+    }
+
+    @objc func checkElectricityPayment() { postElectricity("check") }
+    @objc func dismissElectricity() {
+        electricityDismissed = true
+        postElectricity("dismiss")
+        electricityWindow?.orderOut(nil)
+        electricityVisible = false
+    }
+
+    func updateElectricityWindow(_ electricity: [String: Any]) {
+        let available = electricity["available"] as? Bool ?? false
+        let stale = electricity["stale"] as? Bool ?? false
+        let state = electricity["payment_state"] as? String ?? "idle"
+        let amount = (electricity["payment_amount_yuan"] as? NSNumber)?.intValue ?? 100
+        let building = (electricity["building"] as? NSNumber)?.intValue ?? 0
+        let room = (electricity["room"] as? NSNumber)?.intValue ?? 0
+        electricityBalance.stringValue = available ? String(format: "剩余 %.2f 度%@", (electricity["remaining_kwh"] as? NSNumber)?.doubleValue ?? 0, stale ? "（缓存）" : "") : "等待余额更新…"
+        let caption = ["idle":"选择金额生成充值码", "creating":"正在生成充值码…", "ready":"待支付", "expired":"充值码已过期，请重新生成", "paid":"支付成功，电量到账中", "failed":"支付未成功，请重试", "error":"充值码获取失败，请重试"][state] ?? "等待数据"
+        let forecast = (electricity["estimated_days"] as? NSNumber).map { String(format: "预计 %.1f 天 · 日均 %.2f 度", $0.doubleValue, (electricity["daily_kwh"] as? NSNumber)?.doubleValue ?? 0) } ?? "预计天数统计中（需满24小时）"
+        electricityMeta.stringValue = electricityRequestError ?? "\(building) 栋 · \(room) 室\n\(caption)\n\(forecast)"
+        let expiry = (electricity["expires_at"] as? NSNumber)?.doubleValue ?? 0
+        let remaining = expiry - Date().timeIntervalSince1970
+        let showQR = available && !stale && !electricityPosting && electricityRequestError == nil && state == "ready" && remaining > 0
+        electricityPlaceholder.isHidden = showQR
+        electricityQR.image = showQR ? makeQRCode(electricity["qr_code"] as? String) : nil
+        electricityCountdown.stringValue = showQR ? String(format: "%d 元 · %02d:%02d 后过期", amount, Int(remaining) / 60, Int(remaining) % 60) : "选择金额后生成二维码"
+        electricityGenerate.isEnabled = available && !stale && !electricityPosting && state != "creating"
+        electricityCheck.isEnabled = !electricityPosting
+        electricityLater.isEnabled = !electricityPosting
+    }
+
+    func makeQRCode(_ value: String?) -> NSImage? {
+        guard let value, !value.isEmpty, let filter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
+        filter.setValue(Data(value.utf8), forKey: "inputMessage")
+        filter.setValue("M", forKey: "inputCorrectionLevel")
+        guard let output = filter.outputImage else { return nil }
+        let scale = electricityWindow?.backingScaleFactor ?? 2
+        let side = Int(220 * scale)
+        let factor = max(1, side / (Int(output.extent.width) + 8))
+        guard let image = CIContext().createCGImage(output, from: output.extent),
+              let context = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return nil }
+        context.setFillColor(CGColor(gray: 1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: side, height: side))
+        context.interpolationQuality = .none
+        let width = image.width * factor
+        context.draw(image, in: CGRect(x: (side - width) / 2, y: (side - width) / 2, width: width, height: width))
+        guard let qr = context.makeImage() else { return nil }
+        return NSImage(cgImage: qr, size: NSSize(width: 220, height: 220))
+    }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        if sender === electricityWindow && electricityVisible { dismissElectricity() }
+        return true
     }
 
     func startService() {
@@ -389,7 +703,7 @@ final class ReporterApp: NSObject, NSApplicationDelegate {
         switch SMAppService.mainApp.status {
         case .enabled:
             loginSwitch.state = .on
-            loginStatus.stringValue = "已开启，下次登录自动启动窗口与服务"
+            loginStatus.stringValue = "已开启，下次登录在菜单栏后台启动"
         case .requiresApproval:
             loginSwitch.state = .on
             loginStatus.stringValue = "等待系统允许，请前往系统登录项开启"

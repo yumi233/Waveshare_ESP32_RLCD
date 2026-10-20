@@ -18,6 +18,7 @@ clang -O2 -Wall -Wextra -framework IOKit macos_thermal.c -o "$app_dir/Contents/M
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion 1.0.0" "$app_dir/Contents/Info.plist" 2>/dev/null || \
     /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string 1.0.0" "$app_dir/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :LSMinimumSystemVersion string 13.0" "$app_dir/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Add :LSUIElement bool true" "$app_dir/Contents/Info.plist"
 mkdir -p "$app_dir/Contents/Resources/Legal"
 cp ../LICENSE ../THIRD_PARTY_NOTICES.md "$app_dir/Contents/Resources/Legal/"
 codesign --force --deep --sign - "$app_dir"
