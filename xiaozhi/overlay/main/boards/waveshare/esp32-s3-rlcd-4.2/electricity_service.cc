@@ -5,6 +5,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <ctime>
+#include "electricity_estimate.h"
 
 #include <cJSON.h>
 #include <esp_http_client.h>
@@ -102,6 +104,7 @@ void ElectricityService::Run() {
             result.used_kwh = used;
             result.available = true;
             result.stale = false;
+            EstimateUsage(result);
         } else {
             result.stale = result.available;
         }
@@ -171,4 +174,28 @@ bool ElectricityService::Fetch(int building, int room, float& remaining, float& 
                        ReadNumber(data, "usedamp", used);
     cJSON_Delete(root);
     return valid;
+}
+
+void ElectricityService::EstimateUsage(PanelElectricitySnapshot& result) {
+    const int64_t now = time(nullptr);
+    if (now < 1704067200) return;  // Wait for the network clock.
+    Settings history("electricity", true);
+    const bool same_room = history.GetInt("building", 0) == result.building &&
+                           history.GetInt("room", 0) == result.room;
+    const int64_t baseline_time = history.GetInt("baseline-ts", 0);
+    const float baseline_used = strtof(history.GetString("baseline-use", "0").c_str(), nullptr);
+    float daily = same_room ? strtof(history.GetString("daily", "-1").c_str(), nullptr) : -1;
+    const int64_t elapsed = now - baseline_time;
+    const bool reset = !same_room || baseline_time == 0 || elapsed < 0 ||
+                       elapsed > 14 * 86400 || result.used_kwh < baseline_used;
+    if (reset || elapsed >= 86400) {
+        daily = reset ? -1 : PanelDailyElectricity(baseline_used, result.used_kwh, elapsed);
+        history.SetInt("building", result.building);
+        history.SetInt("room", result.room);
+        history.SetInt("baseline-ts", static_cast<int32_t>(now));
+        history.SetString("baseline-use", std::to_string(result.used_kwh));
+        history.SetString("daily", std::to_string(daily));
+    }
+    result.daily_kwh = std::isfinite(daily) && daily >= 0.05f && daily <= 200 ? daily : -1;
+    result.estimated_days = result.daily_kwh > 0 ? result.remaining_kwh / result.daily_kwh : -1;
 }

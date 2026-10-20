@@ -38,6 +38,18 @@ struct PanelReporterMetrics {
     char computer_name[40] = {};
     char agent_state[16] = "OFFLINE";
     char agent_task[96] = {};
+    bool electricity_available = false;
+    bool electricity_alert = false;
+    int electricity_building = 0;
+    int electricity_room = 0;
+    float electricity_remaining = 0;
+    float electricity_threshold = 10;
+    float electricity_estimated_days = -1;
+    int payment_amount = 100;
+    uint32_t payment_seconds = 0;
+    uint32_t payment_alert_id = 0;
+    char payment_state[16] = "idle";
+    char payment_qr[513] = {};
 };
 
 struct PanelReporterDevice {
@@ -63,6 +75,8 @@ public:
     bool GetSnapshot(PanelReporterSnapshot& snapshot);
     void RequestSelection(int index);
     void RequestReload();
+    // 50/100: generate unpaid QR; 0: check; -1: dismiss.
+    void RequestElectricityAction(int action);
 
 private:
     struct Endpoint {
@@ -72,6 +86,7 @@ private:
         int64_t last_seen_ms = 0;
         char reporter_id[40] = {};
         char pairing_hash[65] = {};
+        char command_token[64] = {};
         char computer_name[40] = {};
         char agent_state[16] = "OFFLINE";
         char agent_task[96] = {};
@@ -100,6 +115,7 @@ private:
     void PublishSnapshot();
     void ClearSelectedMetrics();
     void LoadSettings();
+    void SendElectricityAction(int action);
 
     SemaphoreHandle_t mutex_ = nullptr;
     TaskHandle_t task_ = nullptr;
@@ -109,6 +125,7 @@ private:
     int8_t selected_index_ = -1;
     int requested_index_ = -1;
     bool reload_requested_ = false;
+    int electricity_action_ = -999;
     int64_t last_discovery_ms_ = 0;
     char selected_id_[40] = {};
     char expected_pairing_hash_[65] = {};

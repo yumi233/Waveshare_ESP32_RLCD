@@ -11,6 +11,7 @@ from pathlib import Path
 HERE=Path(__file__).resolve().parent
 COMMIT='5df5b7fb4da2b4d80e2b7f87285ec1f8a9ca565c'
 BOARD=Path('main/boards/waveshare/esp32-s3-rlcd-4.2')
+QR_ENCODER_SYMBOLS=['qrcodegen_calcSegmentBufferSize', 'qrcodegen_encodeBinary', 'qrcodegen_encodeSegments', 'qrcodegen_encodeSegmentsAdvanced', 'qrcodegen_encodeText', 'qrcodegen_getMinFitVersion', 'qrcodegen_getModule', 'qrcodegen_getSize', 'qrcodegen_isAlphanumeric', 'qrcodegen_isNumeric', 'qrcodegen_makeAlphanumeric', 'qrcodegen_makeBytes', 'qrcodegen_makeEci', 'qrcodegen_makeNumeric', 'qrcodegen_version2size']
 
 def patch(path, marker, old, new):
     text=path.read_text()
@@ -89,9 +90,21 @@ def source(root):
         if p.is_file():shutil.copy2(p,root/BOARD/p.name)
     p=root/'main/CMakeLists.txt'
     patch(p,'                        esp_http_client\n','                    PRIV_REQUIRES\n','                    PRIV_REQUIRES\n                        esp_http_client\n')
+    # LVGL and esp_emote_gfx bundle different copies of the same QR encoder.
+    # Namespace the LVGL target through CMake; never edit managed components.
+    qr_marker = '# Panel LVGL QR namespace'
+    cmake_text = p.read_text()
+    if qr_marker not in cmake_text:
+        cmake_text += '\n'+qr_marker+'\nif(CONFIG_BOARD_TYPE_WAVESHARE_ESP32_S3_RLCD_4_2)\n'
+        cmake_text += '    idf_component_get_property(panel_lvgl lvgl__lvgl COMPONENT_LIB)\n'
+        cmake_text += '    target_compile_definitions(${panel_lvgl} PRIVATE\n'
+        for symbol in QR_ENCODER_SYMBOLS:
+            cmake_text += f'        {symbol}=panel_{symbol}\n'
+        cmake_text += '    )\nendif()\n'
+        p.write_text(cmake_text)
     config=json.loads((HERE/'overlay'/BOARD/'config.json').read_text())
     config['builds'][0]['sdkconfig_append'] += [
-        'CONFIG_LV_USE_CHART=y','CONFIG_LV_FONT_MONTSERRAT_38=y','CONFIG_LV_FONT_MONTSERRAT_42=y']
+        'CONFIG_LV_USE_CHART=y','CONFIG_LV_USE_QRCODE=y','CONFIG_LV_FONT_MONTSERRAT_38=y','CONFIG_LV_FONT_MONTSERRAT_42=y']
     (root/BOARD/'config.json').write_text(json.dumps(config,ensure_ascii=False,indent=2)+'\n')
     settings=config['builds'][0]['sdkconfig_append']+[
         'CONFIG_BOARD_TYPE_WAVESHARE_ESP32_S3_RLCD_4_2=y','CONFIG_LANGUAGE_ZH_CN=y']

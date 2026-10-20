@@ -26,16 +26,23 @@ void CustomLcdDisplay::Lvgl_flush_cb(lv_display_t * disp, const lv_area_t * area
     assert(disp != NULL);
     CustomLcdDisplay *Disp = (CustomLcdDisplay *)lv_display_get_user_data(disp);
     uint16_t *buffer = (uint16_t *)color_p;
-  	for(int y = area->y1; y <= area->y2; y++)
-  	{
-  	 	for(int x = area->x1; x <= area->x2; x++) 
-  	 	{
-  	 	   	uint8_t color = (*buffer < 0x7fff) ? ColorBlack : ColorWhite;
-  	 	   	Disp->RLCD_SetPixel(x,y,color);
-  	 	   	buffer++;
-  	 	}
+    for(int y = area->y1; y <= area->y2; y++)
+    {
+        for(int x = area->x1; x <= area->x2; x++)
+        {
+            uint8_t color = (*buffer < 0x7fff) ? ColorBlack : ColorWhite;
+            Disp->RLCD_SetPixel(x,y,color);
+            buffer++;
+        }
 	}
-	Disp->RLCD_Display();
+	// Send a single full 1-bit frame only if its pixels changed. Partial
+    // LVGL flushes can complete immediately until the final area is ready.
+    if (lv_display_flush_is_last(disp) && Disp->frame_dirty_) {
+        Disp->frame_dirty_ = false;
+        Disp->RLCD_Display();
+    } else {
+        lv_display_flush_ready(disp);
+    }
 	// esp_lcd_panel_io_tx_color() is asynchronous.  The LVGL draw buffer and
 	// the shared 1-bit panel buffer must not be reused until the SPI DMA
 	// transaction really finishes.  on_color_trans_done below releases LVGL.
@@ -43,21 +50,21 @@ void CustomLcdDisplay::Lvgl_flush_cb(lv_display_t * disp, const lv_area_t * area
 
 CustomLcdDisplay::CustomLcdDisplay(esp_lcd_panel_io_handle_t panel_io,
 esp_lcd_panel_handle_t panel,
-int width, 
-int height, 
-int offset_x, 
+int width,
+int height,
+int offset_x,
 int offset_y,
-bool mirror_x, 
-bool mirror_y, 
+bool mirror_x,
+bool mirror_y,
 bool swap_xy,
 spi_display_config_t spiconfig,
 spi_host_device_t spi_host) : LcdDisplay(panel_io, panel, width, height),
 mosi_(spiconfig.mosi),
-scl_(spiconfig.scl), 
-dc_(spiconfig.dc), 
-cs_(spiconfig.cs), 
-rst_(spiconfig.rst), 
-width_(width), 
+scl_(spiconfig.scl),
+dc_(spiconfig.dc),
+cs_(spiconfig.cs),
+rst_(spiconfig.rst),
+width_(width),
 height_(height)
 {
 	ESP_LOGI(TAG, "Initialize SPI");
@@ -157,6 +164,10 @@ void CustomLcdDisplay::SetupUI() {
     ui_update_agent_state("OFFLINE");
     ui_update_api_balance("API", "--");
     ui_update_electricity(0, 0, 0, 0, false, false, false);
+    ui_set_payment_handler([](int action) {
+        ReporterService::GetInstance().RequestElectricityAction(action);
+        if (action == 0) ElectricityService::GetInstance().RequestRefresh();
+    });
     ui_update_codex_quota(-1, -1, false, false);
     ui_update_media(false, "stopped", "", "", 0, 0, "");
     ui_update_performance(0, 0, 0, false, 0, 0, false, 0, false,
@@ -193,14 +204,16 @@ bool CustomLcdDisplay::ShowPanelPage(const std::string& page) {
 void CustomLcdDisplay::HandlePanelKeyShortPress() {
     if (!panel_ui_ready_) return;
     DisplayLockGuard lock(this);
-    if (ui_is_computer_page()) ui_select_computer(1);
+    if (ui_is_payment_open()) ui_payment_next();
+    else if (ui_is_computer_page()) ui_select_computer(1);
     else ui_toggle_page();
 }
 
 void CustomLcdDisplay::ToggleComputerPicker() {
     if (!panel_ui_ready_) return;
     DisplayLockGuard lock(this);
-    if (ui_is_computer_page()) ui_show_dashboard();
+    if (ui_is_payment_open()) ui_dismiss_payment();
+    else if (ui_is_computer_page()) ui_show_dashboard();
     else ui_show_computers();
 }
 
@@ -209,6 +222,14 @@ bool CustomLcdDisplay::ConfirmComputerPicker() {
     int selected = -1;
     {
         DisplayLockGuard lock(this);
+        if (ui_is_payment_open()) {
+            ui_payment_confirm();
+            return true;
+        }
+        if (ui_is_electricity_page()) {
+            ui_show_payment();
+            return true;
+        }
         if (!ui_is_computer_page()) return false;
         selected = ui_confirm_computer();
     }
@@ -322,6 +343,14 @@ void CustomLcdDisplay::UpdateStatusBar(bool update_all) {
         ui_update_codex_quota(metrics.codex_short_remaining,
                               metrics.codex_week_remaining,
                               metrics.connected, metrics.codex_quota_stale);
+        const bool matching_room = electricity.configured &&
+            electricity.building == metrics.electricity_building &&
+            electricity.room == metrics.electricity_room;
+        ui_update_payment(metrics.connected && metrics.electricity_available && matching_room,
+                          metrics.electricity_building, metrics.electricity_room,
+                          metrics.electricity_remaining, metrics.electricity_threshold,
+                          metrics.electricity_alert && matching_room, metrics.payment_state,
+                          metrics.payment_amount, metrics.payment_qr, metrics.payment_seconds);
         ui_update_media(metrics.connected && metrics.media_available,
                         metrics.media_status, metrics.media_title,
                         metrics.media_artist,
@@ -362,6 +391,17 @@ void CustomLcdDisplay::UpdateStatusBar(bool update_all) {
                               electricity.stale);
         electricity_generation_ = electricity.generation;
     }
+    if (electricity_available) {
+        float days = electricity.estimated_days;
+        const auto& metrics = reporter.metrics;
+        if (reporter_available && metrics.connected && metrics.electricity_available &&
+            metrics.electricity_building == electricity.building &&
+            metrics.electricity_room == electricity.room && metrics.electricity_estimated_days >= 0) {
+            days = metrics.electricity_estimated_days;
+        }
+        ui_update_electricity_estimate(days, electricity.available, electricity.stale);
+    }
+
 }
 
 void CustomLcdDisplay::InitPortraitLUT() {
@@ -432,6 +472,7 @@ void CustomLcdDisplay::RLCD_Reset(void) {
 
 void CustomLcdDisplay::RLCD_ColorClear(uint8_t color) {
     memset(DispBuffer, color, DisplayLen);
+    frame_dirty_ = true;
 }
 
 void CustomLcdDisplay::RLCD_Init() {
@@ -445,8 +486,8 @@ void CustomLcdDisplay::RLCD_Init() {
 	RLCD_SendData(0x01);
 
 	RLCD_SendCommand(0xC0); //Gate Voltage Control
-	RLCD_SendData(0x11);   
-	RLCD_SendData(0x04);   
+    RLCD_SendData(0x11);
+    RLCD_SendData(0x04);
 
 	RLCD_SendCommand(0xC1); //VSHP Setting
 	RLCD_SendData(0x69);
@@ -512,16 +553,16 @@ void CustomLcdDisplay::RLCD_Init() {
 	RLCD_SendCommand(0xB0);
 	RLCD_SendData(0x64);
 
-	RLCD_SendCommand(0x11); 
-	vTaskDelay(pdMS_TO_TICKS(200));     
+    RLCD_SendCommand(0x11);
+    vTaskDelay(pdMS_TO_TICKS(200));
 	RLCD_SendCommand(0xC9);
 	RLCD_SendData(0x00);
 
 	RLCD_SendCommand(0x36);
-	RLCD_SendData(0x48); 
+    RLCD_SendData(0x48);
 
 	RLCD_SendCommand(0x3A);
-	RLCD_SendData(0x11); 
+    RLCD_SendData(0x11);
 
 	RLCD_SendCommand(0xB9);
 	RLCD_SendData(0x20);
@@ -531,11 +572,11 @@ void CustomLcdDisplay::RLCD_Init() {
 
 	RLCD_SendCommand(0x21);
 
-	RLCD_SendCommand(0x2A); 
+    RLCD_SendCommand(0x2A);
 	RLCD_SendData(0x12);
 	RLCD_SendData(0x2A);
 
-	RLCD_SendCommand(0x2B); 
+    RLCD_SendCommand(0x2B);
 	RLCD_SendData(0x00);
 	RLCD_SendData(0xC7);
 
@@ -556,23 +597,25 @@ void CustomLcdDisplay::RLCD_SetPixel(uint16_t x, uint16_t y, uint8_t color) {
     uint8_t  mask = PixelBitLUT[x][y];
 
     uint8_t *p = &DispBuffer[idx];
+    const uint8_t previous = *p;
 
     if (color)
         *p |= mask;
     else
         *p &= ~mask;
+    if (*p != previous) frame_dirty_ = true;
 }
 
 void CustomLcdDisplay::RLCD_Display() {
     RLCD_SendCommand(0x2A);     // Column Address Set
-  	RLCD_SendData(0x12);
-  	RLCD_SendData(0x2A);
+    RLCD_SendData(0x12);
+    RLCD_SendData(0x2A);
 
-  	RLCD_SendCommand(0x2B);     // Page Address Set
-  	RLCD_SendData(0x00);
-  	RLCD_SendData(0xC7);
+    RLCD_SendCommand(0x2B);     // Page Address Set
+    RLCD_SendData(0x00);
+    RLCD_SendData(0xC7);
 
-  	RLCD_SendCommand(0x2c);     // Page Address Set
+    RLCD_SendCommand(0x2c);     // Page Address Set
 
 	RLCD_Sendbuffera(DispBuffer,DisplayLen);
 }

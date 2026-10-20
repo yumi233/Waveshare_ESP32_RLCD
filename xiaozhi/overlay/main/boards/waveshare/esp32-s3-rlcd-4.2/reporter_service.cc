@@ -5,6 +5,7 @@
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
+#include <cmath>
 
 #include <cJSON.h>
 #include <esp_log.h>
@@ -12,6 +13,7 @@
 #include <esp_netif.h>
 #include <esp_timer.h>
 #include <esp_wifi.h>
+#include <esp_http_client.h>
 #include <sha/sha_core.h>
 
 #include "settings.h"
@@ -21,8 +23,8 @@ namespace {
 constexpr char kTag[] = "PanelReporter";
 constexpr uint16_t kLocalPort = 42100;
 constexpr uint16_t kDiscoveryPort = 8766;
-constexpr int64_t kDiscoveryIntervalMs = 1000;
-constexpr int64_t kReporterExpiryMs = 5000;
+constexpr int64_t kDiscoveryIntervalMs = 5000;
+constexpr int64_t kReporterExpiryMs = 20000;
 constexpr char kDiscoveryRequest[] = "AI_PANEL_DISCOVER_V1";
 constexpr char kDiscoveryType[] = "AI_PANEL_REPORTER_V1";
 
@@ -75,7 +77,7 @@ bool JsonString(const cJSON* object, const char* name,
 
 bool JsonFloat(const cJSON* object, const char* name, float& value) {
     const cJSON* item = JsonItem(object, name);
-    if (!cJSON_IsNumber(item)) return false;
+    if (!cJSON_IsNumber(item) || !std::isfinite(item->valuedouble)) return false;
     value = static_cast<float>(item->valuedouble);
     return true;
 }
@@ -143,6 +145,44 @@ void ReporterService::TaskEntry(void* argument) {
     static_cast<ReporterService*>(argument)->Run();
 }
 
+void ReporterService::RequestElectricityAction(int action) {
+    if (action != 50 && action != 100 && action != 0 && action != -1) return;
+    if (xSemaphoreTake(mutex_, pdMS_TO_TICKS(20)) != pdTRUE) return;
+    electricity_action_ = action;
+    xSemaphoreGive(mutex_);
+}
+
+void ReporterService::SendElectricityAction(int action) {
+    if (selected_index_ < 0 || selected_index_ >= endpoint_count_) return;
+    const Endpoint& endpoint = endpoints_[selected_index_];
+    if (!endpoint.online || endpoint.command_token[0] == '\0' ||
+        strcmp(endpoint.pairing_hash, expected_pairing_hash_) != 0) return;
+    char address[INET_ADDRSTRLEN] = {};
+    if (inet_ntop(AF_INET, &endpoint.address.sin_addr, address, sizeof(address)) == nullptr) return;
+    const char* operation = action > 0 ? "recharge" : action == 0 ? "check" : "dismiss";
+    char url[128], authorization[80], body[40];
+    snprintf(url, sizeof(url), "http://%s:%u/api/v1/electricity/%s", address,
+             endpoint.http_port, operation);
+    snprintf(authorization, sizeof(authorization), "Bearer %s", endpoint.command_token);
+    if (action > 0) snprintf(body, sizeof(body), "{\"amount_yuan\":%d}", action);
+    else snprintf(body, sizeof(body), "{}");
+    esp_http_client_config_t config = {};
+    config.url = url;
+    config.timeout_ms = 3000;
+    config.disable_auto_redirect = true;
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (client == nullptr) return;
+    esp_http_client_set_method(client, HTTP_METHOD_POST);
+    esp_http_client_set_header(client, "Content-Type", "application/json");
+    esp_http_client_set_header(client, "Authorization", authorization);
+    esp_http_client_set_post_field(client, body, strlen(body));
+    const esp_err_t error = esp_http_client_perform(client);
+    const int status = esp_http_client_get_status_code(client);
+    esp_http_client_cleanup(client);
+    last_discovery_ms_ = 0;  // Fetch the resulting order immediately after an action.
+    if (error != ESP_OK || status != 200) ESP_LOGW(kTag, "Electricity command failed HTTP=%d", status);
+}
+
 void ReporterService::Run() {
     while (true) {
         bool reload = false;
@@ -178,12 +218,16 @@ void ReporterService::Run() {
         }
 
         int requested = -1;
+        int electricity_action = -999;
         if (xSemaphoreTake(mutex_, pdMS_TO_TICKS(20)) == pdTRUE) {
             requested = requested_index_;
             requested_index_ = -1;
+            electricity_action = electricity_action_;
+            electricity_action_ = -999;
             xSemaphoreGive(mutex_);
         }
         if (requested >= 0) SelectEndpoint(requested, true);
+        if (electricity_action != -999) SendElectricityAction(electricity_action);
 
         const int64_t now = NowMs();
         if (last_discovery_ms_ == 0 ||
@@ -216,7 +260,7 @@ bool ReporterService::OpenSocket() {
     int enabled = 1;
     setsockopt(socket_, SOL_SOCKET, SO_REUSEADDR, &enabled, sizeof(enabled));
     setsockopt(socket_, SOL_SOCKET, SO_BROADCAST, &enabled, sizeof(enabled));
-    timeval timeout = {.tv_sec = 0, .tv_usec = 100000};
+    timeval timeout = {.tv_sec = 0, .tv_usec = 250000};
     setsockopt(socket_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
 
     sockaddr_in local = {};
@@ -282,7 +326,7 @@ void ReporterService::ParseDiscovery(const char* payload, size_t length,
     if (!JsonString(root, "type", type, sizeof(type)) ||
         strcmp(type, kDiscoveryType) != 0 ||
         !JsonString(root, "reporter_id", id, sizeof(id)) ||
-        !JsonFloat(root, "http_port", port_value)) {
+        !JsonFloat(root, "http_port", port_value) || port_value < 1 || port_value > 65535) {
         cJSON_Delete(root);
         return;
     }
@@ -305,6 +349,8 @@ void ReporterService::ParseDiscovery(const char* payload, size_t length,
     endpoint.last_seen_ms = NowMs();
     CopyUtf8(endpoint.reporter_id, sizeof(endpoint.reporter_id), id);
     CopyUtf8(endpoint.pairing_hash, sizeof(endpoint.pairing_hash), pairing_hash);
+    endpoint.command_token[0] = '\0';
+    JsonString(root, "command_token", endpoint.command_token, sizeof(endpoint.command_token));
     if (!JsonString(root, "computer_name", endpoint.computer_name,
                     sizeof(endpoint.computer_name))) {
         CopyUtf8(endpoint.computer_name, sizeof(endpoint.computer_name), "UNKNOWN-PC");
@@ -343,7 +389,7 @@ void ReporterService::ParseDiscovery(const char* payload, size_t length,
         SelectEndpoint(index, true);
     }
 
-    if (index == selected_index_) {
+    if (index == selected_index_ && strcmp(expected_pairing_hash_, pairing_hash) == 0) {
         PanelReporterMetrics metrics;
         metrics.connected = true;
         metrics.latency_ms = static_cast<uint32_t>(
@@ -356,6 +402,30 @@ void ReporterService::ParseDiscovery(const char* payload, size_t length,
         metrics.codex_short_remaining = endpoint.codex_short_remaining;
         metrics.codex_week_remaining = endpoint.codex_week_remaining;
         metrics.codex_quota_stale = endpoint.codex_quota_stale;
+
+        const cJSON* electricity = JsonItem(root, "electricity");
+        float building = 0, room = 0, seconds = 0, alert_id = 0, amount = 100;
+        if (cJSON_IsTrue(JsonItem(electricity, "configured")) &&
+            cJSON_IsTrue(JsonItem(electricity, "available")) &&
+            !cJSON_IsTrue(JsonItem(electricity, "stale")) &&
+            JsonFloat(electricity, "building", building) && building >= 1 && building <= 999 &&
+            JsonFloat(electricity, "room", room) && room >= 1 && room <= 9999 &&
+            JsonFloat(electricity, "remaining_kwh", metrics.electricity_remaining) &&
+            JsonFloat(electricity, "threshold_kwh", metrics.electricity_threshold)) {
+            JsonFloat(electricity, "estimated_days", metrics.electricity_estimated_days);
+            metrics.electricity_available = true;
+            metrics.electricity_building = static_cast<int>(building);
+            metrics.electricity_room = static_cast<int>(room);
+            metrics.electricity_alert = cJSON_IsTrue(JsonItem(electricity, "show_alert"));
+            JsonString(electricity, "payment_state", metrics.payment_state, sizeof(metrics.payment_state));
+            JsonString(electricity, "qr_code", metrics.payment_qr, sizeof(metrics.payment_qr));
+            JsonFloat(electricity, "payment_amount_yuan", amount);
+            metrics.payment_amount = amount == 50 ? 50 : 100;
+            JsonFloat(electricity, "expires_in_seconds", seconds);
+            metrics.payment_seconds = static_cast<uint32_t>(std::clamp(seconds, 0.0f, 1800.0f));
+            JsonFloat(electricity, "alert_id", alert_id);
+            metrics.payment_alert_id = static_cast<uint32_t>(std::clamp(alert_id, 0.0f, 1000000.0f));
+        }
 
         const cJSON* performance = JsonItem(root, "performance");
         const bool base_metrics =

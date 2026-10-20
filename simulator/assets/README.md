@@ -24,7 +24,7 @@
 
 `source/icons/` 和 `source/ciallo_maid_pixel_transparent.png` 是上一版状态首页素材，当前音乐状态首页不再引用，但暂时保留以便回退或制作其他页面。
 
-`source/user_character/avatar-user-selected-80.png` 是用户选定角色参考图的 80×80 黑白像素版本，首页使用此图。生成器将后者转换为 `ui_character_avatar.c`。角色形象不适用本项目 MIT 授权。
+`source/user_character/` 保存用户提供的波奇酱原图、初版 80×80 头像和清理后的 64×64 黑白头像。`avatar-user-selected-80.png` 是首页实际引用的素材，由用户选定的原图转换而来；重新生成素材时会转换为 `ui_character_avatar.c`。
 
 ## 重新生成 LVGL 资源
 

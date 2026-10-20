@@ -39,6 +39,7 @@
 #define LV_FONT_DEFAULT &lv_font_montserrat_14
 
 #define LV_USE_SDL 1
+#define LV_USE_QRCODE 1
 #define LV_SDL_INCLUDE_PATH <SDL2/SDL.h>
 #define LV_SDL_RENDER_MODE LV_DISPLAY_RENDER_MODE_PARTIAL
 #define LV_SDL_BUF_COUNT 1

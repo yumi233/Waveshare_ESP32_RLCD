@@ -372,7 +372,15 @@ public:
     virtual bool GetBatteryLevel(int &level, bool& charging, bool& discharging) override {
         charging = false;
         discharging = !charging;
-        level = (int)BatterygetPercent();
+        // Avoid powering ADC sampling ten times every status tick.
+        static int cached_level = 0;
+        static int64_t sampled_at = -15000000;
+        const int64_t now = esp_timer_get_time();
+        if (now - sampled_at >= 15000000) {
+            cached_level = static_cast<int>(BatterygetPercent());
+            sampled_at = now;
+        }
+        level = cached_level;
 
         return true;
     }

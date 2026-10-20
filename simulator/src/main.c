@@ -140,6 +140,9 @@ int main(void)
     ui_update_codex_quota(100, 91, true, false);
     ui_update_api_balance("DeepSeek", "CNY 86.42");
     ui_update_electricity(46, 416, 32.50f, 128.4f, true, true, false);
+    const char *electricity_days = getenv("AI_PANEL_ELECTRICITY_DAYS");
+    if(electricity_days != NULL)
+        ui_update_electricity_estimate(strtof(electricity_days, NULL), true, false);
     ui_update_pc_connected(true);
     ui_update_syna_conversation("今天还有什么安排？",
                                 "你有 2 项待办，最近一项是整理开发文档。");
@@ -180,6 +183,15 @@ int main(void)
     else if(start_page != NULL && strcmp(start_page, "about") == 0) {
         ui_show_electricity();
         ui_toggle_page();
+    }
+    const char *payment_preview = getenv("AI_PANEL_PAYMENT_QR");
+    if(payment_preview != NULL) {
+        ui_update_electricity(1, 101, 8.5f, 128.4f, true, true, false);
+        ui_update_payment(true, 1, 101, 8.5f, 10, true, "ready", 100, payment_preview, 300);
+        lv_obj_t *preview_label = lv_label_create(lv_layer_top());
+        lv_label_set_text(preview_label, "PREVIEW / DEMO");
+        lv_obj_set_pos(preview_label, 99, 8);
+        lv_obj_set_style_text_font(preview_label, &lv_font_montserrat_12, 0);
     }
 
     uint32_t last_clock_update = SDL_GetTicks();

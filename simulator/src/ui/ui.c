@@ -104,6 +104,8 @@ static lv_obj_t *dashboard_temperature_label;
 static lv_obj_t *dashboard_humidity_label;
 static lv_obj_t *dashboard_electricity_label;
 static lv_obj_t *dashboard_electricity_title;
+static lv_obj_t *dashboard_forecast_label, *electricity_forecast_label;
+static float current_electricity_days = -1;
 static lv_obj_t *dashboard_battery_label;
 static lv_obj_t *performance_battery_label;
 static lv_obj_t *syna_battery_label;
@@ -266,6 +268,7 @@ static void ensure_assistant_overlay(void)
 
 void ui_show_assistant_overlay(const char *state, const char *text)
 {
+    if(ui_is_payment_open()) return;
     ensure_assistant_overlay();
     assistant_active = true;
     char line[256];
@@ -555,6 +558,7 @@ void ui_update_electricity(int building, int room, float remaining_kwh,
         lv_label_set_text(dashboard_electricity_label, compact);
         lv_label_set_text(dashboard_electricity_title, stale ? "余电*/度" : "余电/度");
     }
+    ui_update_electricity_estimate(current_electricity_days, available, stale);
     if(electricity_screen == NULL) return;
     char text[80];
     if(configured) snprintf(text, sizeof(text), "%d 栋  /  %d 室", building, room);
@@ -601,6 +605,9 @@ void ui_show_electricity(void)
     make_label(screen, "kWh / 度", &ui_font_14_cjk, 279, 205);
     electricity_usage_label = make_label(screen, "", &ui_font_14_cjk, 18, 235);
     lv_obj_set_size(electricity_usage_label, 340, 20);
+    electricity_forecast_label = make_label(screen, "预计天数统计中", &ui_font_14_cjk, 18, 256);
+    ui_update_electricity_estimate(current_electricity_days, current_electricity_available, current_electricity_stale);
+    make_label(screen, "BOOT: RECHARGE", &ui_font_11_regular, 155, 274);
     electricity_battery_label = make_value_label(screen, &ui_font_11_regular,
                                                   354, 268, 36, 18);
     update_battery_labels();
@@ -628,14 +635,15 @@ void ui_show_dashboard(void)
     const computer_t *computer = &computers[current_computer];
 
     make_editorial_shell(screen, "01 / 夏柠 · 首页");
+    /* Reserve a separate row below the three readings for the forecast. */
+    make_white_mask(screen, 177, 68, 213, 5);
     make_label(screen, "TEMP", &ui_font_11_regular, 180, 27);
     make_label(screen, "HUM", &ui_font_11_regular, 245, 27);
     dashboard_electricity_title = make_label(screen, "余电/度", &ui_font_14_cjk, 312, 26);
     make_rule(screen, 17, 165, 166, 1);
     make_rule(screen, 193, 103, 187, 1);
     make_rule(screen, 193, 181, 187, 1);
-    make_label(screen, "NOW PLAYING", &ui_font_11_regular, 193, 81);
-    make_sparkle(screen, 370, 81);
+    make_label(screen, "NOW PLAYING", &ui_font_11_regular, 193, 87);
     lv_obj_t *portrait_frame = make_panel(screen, 16, 78, 82, 82);
     lv_obj_set_style_radius(portrait_frame, 0, 0);
     make_label(screen, "♪", &ui_font_14_cjk, 193, 113);
@@ -653,6 +661,10 @@ void ui_show_dashboard(void)
     dashboard_electricity_label = make_value_label(screen, &ui_font_18_regular,
                                                     312, 44, 77, 22);
     lv_label_set_text(dashboard_electricity_label, "--");
+    dashboard_forecast_label = make_label(screen, "预计天数统计中", &ui_font_14_cjk, 180, 67);
+    lv_obj_set_size(dashboard_forecast_label, 208, 17);
+    lv_label_set_long_mode(dashboard_forecast_label, LV_LABEL_LONG_CLIP);
+    ui_update_electricity_estimate(current_electricity_days, current_electricity_available, current_electricity_stale);
     dashboard_battery_label = make_value_label(screen, &ui_font_11_regular,
                                                 354, 268, 36, 18);
     lv_obj_set_style_text_align(dashboard_temperature_label, LV_TEXT_ALIGN_LEFT, 0);
@@ -691,7 +703,7 @@ void ui_show_dashboard(void)
     }
 
     dashboard_media_status_label = make_label(
-        screen, "未播放", &ui_font_14_cjk, 304, 80);
+        screen, "未播放", &ui_font_14_cjk, 304, 87);
     lv_obj_set_size(dashboard_media_status_label, 77, 18);
     dashboard_media_title_label = make_label(
         screen, "网易云音乐", &ui_font_14_cjk, 216, 113);
@@ -1650,4 +1662,178 @@ static void computer_row_clicked(lv_event_t *event)
     selected_computer = computer_list_offset +
                         (int)(uintptr_t)lv_event_get_user_data(event);
     update_computer_rows();
+}
+
+/* Shared unpaid electricity order, rendered without smoothing on the RLCD. */
+static lv_obj_t *payment_panel, *payment_qr, *payment_message;
+static lv_obj_t *payment_room, *payment_balance, *payment_status;
+static lv_obj_t *payment_buttons[4], *payment_button_labels[4];
+static void (*payment_handler)(int action);
+static bool payment_available, payment_alert_latched;
+static int payment_selected, payment_amount = 100;
+static int payment_building, payment_room_number;
+static float payment_remaining, payment_threshold = 10;
+static char payment_state[16] = "idle", payment_qr_text[513];
+static uint32_t payment_deadline;
+
+static void refresh_payment(void)
+{
+    if(payment_panel == NULL) return;
+    char text[96];
+    snprintf(text, sizeof(text), "%d栋 %d室", payment_building, payment_room_number);
+    lv_label_set_text(payment_room, payment_available ? text : "电脑未连接");
+    snprintf(text, sizeof(text), "剩余 %.2f 度  /  提醒 %.0f 度", payment_remaining, payment_threshold);
+    lv_label_set_text(payment_balance, payment_available ? text : "请打开电脑端 Reporter");
+    int32_t ms_left = (int32_t)(payment_deadline - lv_tick_get());
+    bool ready = payment_available && strcmp(payment_state, "ready") == 0 && ms_left > 0;
+    if(!ready) {
+        lv_obj_add_flag(payment_qr, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(payment_message, LV_OBJ_FLAG_HIDDEN);
+        const char *message = !payment_available ? "等待电脑连接" :
+            strcmp(payment_state, "creating") == 0 ? "正在生成\n请稍候…" :
+            strcmp(payment_state, "paid") == 0 ? "支付成功\n电量到账中" :
+            strcmp(payment_state, "failed") == 0 ? "支付未成功\n请选择金额重试" :
+            strcmp(payment_state, "error") == 0 ? "获取失败\n请选择金额重试" :
+            strcmp(payment_state, "expired") == 0 || strcmp(payment_state, "ready") == 0
+                ? "二维码已过期\n请选择金额刷新" : "选择右侧金额\n生成充值二维码";
+        lv_label_set_text(payment_message, message);
+        lv_label_set_text(payment_status, "学校电费充值");
+    } else {
+        snprintf(text, sizeof(text), "%d元  ·  %d:%02d", payment_amount,
+                 (int)((ms_left / 1000) / 60), (int)((ms_left / 1000) % 60));
+        lv_label_set_text(payment_status, text);
+    }
+    for(int i = 0; i < 4; ++i) {
+        bool selected = payment_selected == i;
+        lv_obj_set_style_bg_color(payment_buttons[i], selected ? COLOR_BLACK : COLOR_WHITE, 0);
+        lv_obj_set_style_text_color(payment_button_labels[i], selected ? COLOR_WHITE : COLOR_BLACK, 0);
+    }
+}
+
+static void payment_timer_cb(lv_timer_t *timer)
+{
+    (void)timer;
+    refresh_payment();
+}
+
+void ui_set_payment_handler(void (*handler)(int action)) { payment_handler = handler; }
+bool ui_is_payment_open(void)
+{
+    return payment_panel != NULL && !lv_obj_has_flag(payment_panel, LV_OBJ_FLAG_HIDDEN);
+}
+bool ui_is_electricity_page(void) { return current_page == PAGE_ELECTRICITY; }
+
+void ui_show_payment(void)
+{
+    ui_hide_assistant_overlay();
+    if(payment_panel == NULL) {
+        payment_panel = lv_obj_create(lv_layer_top());
+        lv_obj_remove_style_all(payment_panel);
+        lv_obj_set_size(payment_panel, 400, 300);
+        lv_obj_set_pos(payment_panel, 0, 0);
+        lv_obj_set_style_bg_color(payment_panel, COLOR_WHITE, 0);
+        lv_obj_set_style_bg_opa(payment_panel, LV_OPA_COVER, 0);
+        lv_obj_remove_flag(payment_panel, LV_OBJ_FLAG_SCROLLABLE);
+        make_label(payment_panel, "宿舍电费", &ui_font_14_cjk, 14, 8);
+        payment_room = make_label(payment_panel, "", &ui_font_14_cjk, 245, 8);
+        payment_balance = make_label(payment_panel, "", &ui_font_14_cjk, 14, 30);
+        lv_obj_t *qr_frame = make_panel(payment_panel, 10, 51, 216, 216);
+        payment_qr = lv_qrcode_create(qr_frame);
+        lv_qrcode_set_size(payment_qr, 190);
+        lv_qrcode_set_dark_color(payment_qr, COLOR_BLACK);
+        lv_qrcode_set_light_color(payment_qr, COLOR_WHITE);
+        lv_obj_set_pos(payment_qr, 12, 12);
+        payment_message = make_label(qr_frame, "", &ui_font_14_cjk, 8, 80);
+        lv_obj_set_width(payment_message, 196);
+        lv_obj_set_style_text_align(payment_message, LV_TEXT_ALIGN_CENTER, 0);
+        payment_status = make_label(payment_panel, "", &ui_font_14_cjk, 237, 55);
+        const char *actions[] = {"充值100元", "充值50元", "查询支付", "稍后再付"};
+        for(int i = 0; i < 4; ++i) {
+            payment_buttons[i] = make_panel(payment_panel, 237, 82 + i * 45, 149, 34);
+            payment_button_labels[i] = make_label(payment_buttons[i], actions[i], &ui_font_14_cjk, 0, 7);
+            lv_obj_set_width(payment_button_labels[i], 147);
+            lv_obj_set_style_text_align(payment_button_labels[i], LV_TEXT_ALIGN_CENTER, 0);
+        }
+        make_label(payment_panel, "KEY: NEXT   BOOT: OK   HOLD KEY: CLOSE", &ui_font_11_regular, 14, 282);
+        lv_timer_create(payment_timer_cb, 500, NULL);
+    }
+    lv_obj_remove_flag(payment_panel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(payment_panel);
+    refresh_payment();
+}
+
+void ui_dismiss_payment(void)
+{
+    if(payment_panel != NULL) lv_obj_add_flag(payment_panel, LV_OBJ_FLAG_HIDDEN);
+    payment_alert_latched = true;
+    if(payment_handler != NULL) payment_handler(-1);
+}
+void ui_payment_next(void)
+{
+    payment_selected = (payment_selected + 1) % 4;
+    refresh_payment();
+}
+void ui_payment_confirm(void)
+{
+    if(payment_selected == 3) { ui_dismiss_payment(); return; }
+    if(payment_handler == NULL || !payment_available) return;
+    int action = payment_selected == 0 ? 100 : payment_selected == 1 ? 50 : 0;
+    if(action > 0) {
+        snprintf(payment_state, sizeof(payment_state), "creating");
+        payment_qr_text[0] = '\0';
+    }
+    payment_handler(action);
+    refresh_payment();
+}
+void ui_update_payment(bool available, int building, int room, float remaining,
+                        float threshold, bool alert, const char *state, int amount,
+                        const char *qr, unsigned int seconds)
+{
+    payment_available = available;
+    payment_building = building; payment_room_number = room;
+    payment_remaining = remaining; payment_threshold = threshold;
+    payment_amount = amount;
+    snprintf(payment_state, sizeof(payment_state), "%s", state ? state : "idle");
+    payment_deadline = lv_tick_get() + (seconds > 1800 ? 1800 : seconds) * 1000U;
+    if(!alert) payment_alert_latched = false;
+    if(available && alert && !payment_alert_latched) {
+        payment_alert_latched = true;
+        payment_selected = 0;
+        ui_show_payment();
+    }
+    if(payment_panel != NULL) {
+        const char *safe_qr = qr ? qr : "";
+        bool valid_qr = strncmp(safe_qr, "weixin:", 7) == 0 ||
+                       strncmp(safe_qr, "wxp:", 4) == 0 ||
+                       strncmp(safe_qr, "https://qr.95516.com/", 21) == 0 ||
+                       strncmp(safe_qr, "https://wx.tenpay.com/", 22) == 0;
+        if(available && seconds > 0 && strcmp(payment_state, "ready") == 0 && valid_qr) {
+            if(strcmp(payment_qr_text, safe_qr) != 0) {
+                if(lv_qrcode_update(payment_qr, safe_qr, strlen(safe_qr)) != LV_RESULT_OK) {
+                    snprintf(payment_state, sizeof(payment_state), "error");
+                } else snprintf(payment_qr_text, sizeof(payment_qr_text), "%s", safe_qr);
+            }
+            if(strcmp(payment_state, "ready") == 0) {
+                lv_obj_remove_flag(payment_qr, LV_OBJ_FLAG_HIDDEN);
+                lv_obj_add_flag(payment_message, LV_OBJ_FLAG_HIDDEN);
+            }
+        } else {
+            payment_qr_text[0] = '\0';
+            if(strcmp(payment_state, "ready") == 0) snprintf(payment_state, sizeof(payment_state), "error");
+        }
+        refresh_payment();
+    }
+}
+
+void ui_update_electricity_estimate(float days, bool available, bool stale)
+{
+    current_electricity_days = days;
+    char text[80];
+    if(!available) snprintf(text, sizeof(text), "预计天数 --");
+    else if(days >= 0 && days <= 999) snprintf(text, sizeof(text), "预计 %.1f 天%s", (double)days, stale ? " / 缓存" : "");
+    else if(days > 999) snprintf(text, sizeof(text), "预计 >999 天%s", stale ? " / 缓存" : "");
+    else snprintf(text, sizeof(text), "预计天数统计中");
+    lv_obj_t *labels[] = {dashboard_forecast_label, electricity_forecast_label};
+    for(int i = 0; i < 2; ++i) if(labels[i] != NULL && lv_obj_is_valid(labels[i]) &&
+        strcmp(lv_label_get_text(labels[i]), text) != 0) lv_label_set_text(labels[i], text);
 }

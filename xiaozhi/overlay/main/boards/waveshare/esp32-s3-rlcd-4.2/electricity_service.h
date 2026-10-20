@@ -11,6 +11,8 @@ struct PanelElectricitySnapshot {
     int room = 0;
     float remaining_kwh = 0;
     float used_kwh = 0;
+    float daily_kwh = -1;
+    float estimated_days = -1;
     bool configured = false;
     bool available = false;
     bool stale = false;
@@ -27,6 +29,7 @@ private:
     ElectricityService() = default;
     static void TaskEntry(void* context);
     void Run();
+    void EstimateUsage(PanelElectricitySnapshot& snapshot);
     void Publish(const PanelElectricitySnapshot& snapshot);
     static bool WifiReady();
     static bool Fetch(int building, int room, float& remaining, float& used);

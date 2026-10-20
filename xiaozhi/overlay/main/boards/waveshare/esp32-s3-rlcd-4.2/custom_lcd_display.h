@@ -6,7 +6,7 @@
 #include "lcd_display.h"
 
 enum ColorSelection {
-    ColorBlack = 0,    
+    ColorBlack = 0,
     ColorWhite = 0xff
 };
 
@@ -33,6 +33,7 @@ private:
     int                 height_;
     uint8_t            *DispBuffer = NULL;
     int                 DisplayLen;
+    bool                frame_dirty_ = true;
 	bool                panel_ui_ready_ = false;
 	uint32_t            reporter_generation_ = 0;
 	uint32_t            todo_generation_ = 0;
