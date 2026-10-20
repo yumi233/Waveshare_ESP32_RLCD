@@ -1,6 +1,6 @@
 # 构建说明
 
-以下命令从项目根目录开始执行。验证结果见 [构建记录](BUILD_VALIDATION.md)。
+以下命令从项目根目录开始执行。原版构建结果见 [构建记录](BUILD_VALIDATION.md)，本次源码检查见 [1.0.0-rc.3 验证记录](RELEASE_VALIDATION_2026-10-20.md)。
 
 ## Reporter
 
@@ -50,3 +50,17 @@ reporter/.venv/Scripts/python.exe installer/windows/build_standalone.py --firmwa
 ## 模拟器
 
 需要 CMake、SDL2 和 LVGL **9.5.0**。将该版本完整源码放到 `simulator/vendor/lvgl-9.5.0`，保留原许可证，使用 `simulator/CMakeLists.txt` 构建。字体源和许可证随源码保留；推荐 Python 字体生成器。PowerShell 模拟器脚本仍包含作者本地路径，使用前调整，或者直接通过 CMake 配置 SDL2 搜索路径。
+
+```bash
+cmake -S simulator -B simulator/build-mac -DAI_PANEL_BUILD_HOST_TESTS=ON
+cmake --build simulator/build-mac -j 6
+./simulator/build-mac/bin/ai_panel_simulator
+```
+
+真实 UI 回归入口为 `python3 tests/check_ui_branding.py`，它复用模拟器的 LVGL 配置和素材，验证开屏、作者署名、预计天数与充值选择。`tests/check_panel_buttons.py` 和 `tests/check_quota_stale.py` 可在 macOS / Linux 使用 C++17 编译器运行，也保留 Visual C++ 路线。
+
+## 本版注意事项
+
+公开固件源码不预填私人宿舍。刷入后在设备设置页配置楼栋与房间，电脑 Reporter 填写相同值。`CONFIG_LV_USE_QRCODE=y` 及 QR 编码器的板级符号隔离由覆盖脚本应用，不需要手改受管理依赖。
+
+本次 Release 附件为源码，桌面应用与固件需按上述步骤自行构建。打包源码见 [发布流程](PUBLISHING.md)。

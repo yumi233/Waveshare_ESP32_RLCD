@@ -19,7 +19,7 @@
 | Syna UI 位图字体 | 数字/西文来自 Arimo，中文点阵来自 GNU Unifont 16.0.04，开机大字来自 Noto Sans CJK SC；统一按 SIL OFL 1.1 使用；见 simulator/assets/fonts/SOURCE.md 及对应许可证；不适用根目录 MIT |
 | 图标与背景 | 黑沐于 2026-09-13 确认自行制作；其原创部分按本项目 MIT 授权 |
 | 角色头像 | `avatar-user-selected-80.png` 是用户提供的《孤独摇滚！》后藤一里角色参考图的黑白像素转换版本；角色及相关图像不适用本项目 MIT 授权，其权利仍归相应权利人 |
-| 自定义唤醒词 | 配置词 ni hao xi na；底层为乐鑫 ESP-SR MultiNet7，模型不是黑沐原创；见 release/licenses/esp-sr-2.4.7-LICENSE.txt |
+| 自定义唤醒词 | 配置词 ni hao xia ning；底层为乐鑫 ESP-SR MultiNet7，模型不是黑沐原创；见 release/licenses/esp-sr-2.4.7-LICENSE.txt |
 
 小智许可证副本见 release/licenses/xiaozhi-MIT.txt。源码中原有授权头、许可证和 NOTICE 均保留。
 公开完整固件和素材包前，仍需完成资源来源及 ESP-IDF/语音模型依赖的逐项分发核查。
@@ -36,8 +36,8 @@ Unifont 上游字体为双许可，本项目选择 SIL OFL 1.1，原始 COPYING 
 ## 唤醒词来源
 
 固定小智上游声明依赖 espressif/esp-sr ~2.4.7；当前板级配置使用
-CONFIG_SR_MN_CN_MULTINET7_QUANT=y，识别命令为 ni hao xi na。
-这属于用乐鑫 MultiNet7 配置识别词，没有发现单独训练的“你好希娜”模型。
+CONFIG_SR_MN_CN_MULTINET7_QUANT=y，识别命令为 ni hao xia ning。
+本定制版显示词为“你好夏柠”，通过乐鑫 MultiNet7 配置识别词，未宣称独立训练基础语音模型。
 ESP-SR 2.4.7 的 ESPRESSIF MIT 许可限定用于乐鑫产品，允许相应使用和销售，须保留许可。
 它不是无硬件限制的标准 MIT，禁止将其改标为本项目 MIT。
 来源：https://components.espressif.com/components/espressif/esp-sr/versions/2.4.7/license

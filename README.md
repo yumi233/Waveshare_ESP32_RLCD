@@ -1,56 +1,59 @@
-# 夏柠
+# 夏柠 · ESP32 RLCD 桌面助手
 
-微雪 ESP32-S3-RLCD-4.2 桌面助手，配套 Windows / macOS Reporter。
+基于微雪 **ESP32-S3-RLCD-4.2** 的 400×300 黑白屏桌面助手，配套 Windows / macOS Reporter。
 
-当前版本：**1.0.0 候选版**。
+**源码版本：1.0.0-rc.3 · 2026-10-20**。这是玉米维护的定制版，程序内部版本暂沿用 1.0.0。本次 Release 提供完整项目源码和校验清单，安装器、预编译固件另按构建说明生成。
 
-## 功能与支持范围
+[下载源码](https://github.com/yumi233/Waveshare_ESP32_RLCD/releases/tag/v1.0.0-rc.3) · [功能索引](docs/FEATURES.md) · [构建说明](docs/BUILD.md) · [更新记录](CHANGELOG.md) · [本版说明](docs/RELEASE_NOTES_1.0.0-rc.3.md)
 
-- 开发板显示电脑性能、Agent 状态与额度，以及音乐信息。
-- 首页使用可公开分发的原创像素头像；Agent 区域可在任务＋周额度、两项额度、仅任务之间切换。语音唤醒短语为「你好夏柠」。
-- 首页显示宿舍余电，另有「宿舍用电」页查看楼栋、房间、剩余及已用电量；也可让夏柠读出最近一次查询结果。
-- 局域网发现电脑、选择绑定电脑，保留配置升级。
-- Windows 一体安装器提供仅安装 Reporter、保留配置升级、首次安装三种模式。
-- 当前固件改为一次唤醒一轮问答，回答期间不接受语音打断。此项已编译、刷入，实际语音体验待验证。
-- 音乐时间沿用当前估算逻辑，不承诺精确实时进度。
+![首页与宿舍余电预计天数示意](docs/previews/home-electricity-estimate.png)
 
-硬件目标为 ESP32-S3-RLCD-4.2，16 MB Flash、8 MB PSRAM。不要将固件刷到其他型号。
+> 预览使用示例数据。新启用时预计天数显示“统计中”，积累至少 24 小时有效用电记录后才计算。
 
-## 使用
+## 按功能查看
 
-宿舍用电需在设备设置页填写楼栋号和房间号。短按 KEY 可翻到「宿舍用电」页；查询约每 15 分钟更新一次，失败时保留并标明上次数据。学校接口可能只允许校园网访问，因此异地网络下可能无法查询。此功能只查询，不提供充值，也不要求校园账户密码。接口依据 [学校宿舍充电指引](https://www.wyu.edu.cn/zwc/info/1416/3911.htm) 和 [MYHealer 的开源项目](https://github.com/MYHealer/wyu-electricity) 实现；学校接口若调整，查询可能失效。
+| 功能 | 本版内容 | 说明 |
+| --- | --- | --- |
+| 设备界面与开屏 | 夏柠开屏、像素装饰、角色头像、留白排版、按键操作 | [页面与按键](docs/features/UI_AND_BUTTONS.md) |
+| 首页 Agent 区域 | 任务＋周额度、短周期＋周额度、仅任务，可在设置页切换 | [界面设计](docs/UI_REDESIGN_EDITORIAL.md) |
+| Codex 状态与额度 | 原生 CLI 优先、App Server 长连接、登录识别、缓存与恢复 | [Reporter 与额度](docs/features/CODEX_AND_REPORTER.md) |
+| 宿舍用电 | 五邑大学余电、累计用电，首页显示预计可用天数 | [用电与充值](docs/ELECTRICITY_RECHARGE.md) |
+| 低余电提醒 | 默认 ≤10 度，电脑和 RLCD 显示学校待支付码，100 / 50 元可选 | [配置与操作](docs/ELECTRICITY_RECHARGE.md) |
+| 待机优化 | 发现周期 5 秒、相同画面跳过 SPI、15 秒电池采样缓存 | [省电改动](docs/features/POWER.md) |
+| 电脑性能与音乐 | CPU / GPU / 内存 / 磁盘 / 网络、网易云音乐与歌词 | [macOS](reporter/MACOS.md) / [Windows](reporter/WINDOWS-UI.md) |
+| 语音与电脑绑定 | “你好夏柠”、单轮问答、局域网发现与电脑选择 | [固件](xiaozhi/README.md) / [通信接口](docs/PROTOCOL.md) |
 
-![首页余电模拟预览](docs/previews/home-electricity.png)
+## 开始使用
 
-![宿舍用电页模拟预览](docs/previews/electricity.png)
+1. 确认硬件为 ESP32-S3-RLCD-4.2，**16 MB Flash、8 MB PSRAM**，按 [构建说明](docs/BUILD.md) 生成固件。升级前备份 Flash 并核对分区。
+2. 在电脑启动 Reporter，与设备连接到可互访的局域网。macOS 应用驻留菜单栏，不占 Dock；关闭状态窗口仍继续采集。
+3. 设备先按住 BOOT，再同时长按 KEY 约 3 秒进入设置页，配置 Wi-Fi 和首页显示模式。
+4. 如需宿舍用电，在设备设置页和电脑「电费 / 充值」中填写**相同的楼栋与房间**。公开源码默认未配置宿舍，不包含私人配置。
+5. 余电达到提醒阈值时自动显示充值页，也可在宿舍用电页按 BOOT 打开。实际付款由用户扫码完成。
 
-正式发布后，从项目 Releases 获取对应系统安装包。此源码目录不包含安装包、运行环境或设备配置。
-
-Windows 用户打开安装器后：已有本项目固件选择“保留配置升级”；仅需电脑端选择“仅安装 Reporter”。“首次安装”会清除开发板原有数据，操作前需要确认。刷写过程中保持 USB 连接，保留备份直到验收结束。
-
-Windows 电脑端安装和保留配置刷机已由作者本机验收。macOS 有独立实现与历史验证，但未与本轮 Windows 改动重新做整套验收。
+学校接口可能需要校园网，变更后也可能暂时不可用。首次用电天数估算需要至少 24 小时记录；设备电池续航不参与该估算。充值提示、设置窗口目前在 **macOS** 实现，Windows 新界面尚未做本版集成验收。
 
 ## 源码结构
 
 | 目录 | 内容 |
 | --- | --- |
-| `xiaozhi/` | 固定小智上游版本的补丁、板级源码和 ESP-IDF 构建入口 |
-| `reporter/` | 电脑端状态服务、媒体采集、Windows / Mac 界面 |
-| `installer/` | Windows / Mac 安装器源码 |
-| `simulator/` | LVGL 界面模拟器、素材及字体生成器 |
-| `tests/` | 固件界面与状态逻辑主机测试 |
-| `release/` | 发布签名工具、公钥和第三方许可证 |
+| `xiaozhi/` | 固定上游版本、板级源码、补丁和 ESP-IDF 构建入口 |
+| `reporter/` | 状态采集、额度通信、用电服务、桌面窗口与回归测试 |
+| `simulator/` | LVGL 模拟器、同源 UI、字体与素材 |
+| `installer/` | Windows / macOS 安装器源码 |
+| `tests/` | 固件界面、按键和状态逻辑主机测试 |
+| `docs/` | 功能说明、协议、构建、预览与验收记录 |
+| `release/` | 源码打包、校验与签名工具、第三方许可材料 |
 
-固件基于 **ESP-IDF 6.0.2**。
+固件基于 ESP-IDF **6.0.2** 和锁定的小智提交；模拟器使用 LVGL **9.5.0**。上游依赖、构建缓存、运行配置或整片设备备份不混入源码包。
 
-构建入口见 [构建说明](docs/BUILD.md)，已知限制见 [发布检查表](docs/RELEASE_CHECKLIST.md)。
+## 验证范围
 
-版本内容见 [发布说明](docs/RELEASE_NOTES_1.0.0.md)。
+本版验证记录见 [发布验证](docs/RELEASE_VALIDATION_2026-10-20.md)。2026-10-10 的固件曾完成 USB 写入校验、启动、联网及音频初始化检查；持续续航、扫码后的真实支付到账及其他电脑兼容性不以单元测试代替。历史 Windows 验收见原有发布记录，本版没有生成新的 Windows 安装包。
 
 ## 作者与许可
 
-原项目作者：[黑沐](https://github.com/heimumumu)。本地定制版的界面重构与定制：[玉米](https://github.com/yumi233)。原作者的版权和 MIT 许可声明保持完整；第三方代码、字体和模型保留各自许可证，见 [第三方说明](THIRD_PARTY_NOTICES.md)。
-
-上游项目：<https://github.com/heimumumu/Waveshare_ESP32_RLCD>
-
-仓库包含用户选定角色头像的黑白像素版本，不适用根目录 MIT 授权；设备的私人配置未公开。角色及相关图像的权利归相应权利人，复用或再分发前请自行确认授权。
+- **原项目作者：[黑沐 / heimumumu](https://github.com/heimumumu)**，原项目：[Waveshare_ESP32_RLCD](https://github.com/heimumumu/Waveshare_ESP32_RLCD)。
+- **界面重构与功能定制：[玉米 / yumi233](https://github.com/yumi233)**，本仓库：[yumi233/Waveshare_ESP32_RLCD](https://github.com/yumi233/Waveshare_ESP32_RLCD)。
+- 小智底座、LVGL、字体、语音模型及其他依赖保留各自版权和许可证，详见 [LICENSE](LICENSE) 与 [第三方说明](THIRD_PARTY_NOTICES.md)。
+- 用户选定的《孤独摇滚！》后藤一里角色头像及其像素转换不适用根目录 MIT，其相关权利归原权利人；本仓库不将角色素材宣称为原创或已获 MIT 授权。

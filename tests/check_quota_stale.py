@@ -1,9 +1,9 @@
 """Exercise the actual firmware quota renderer with a small LVGL host stub."""
 from pathlib import Path
+from host_compile import compile_cpp
 import re
 import subprocess
 import tempfile
-import os
 from check_panel_buttons import method, BOARD, ROOT
 
 support = r'''
@@ -12,6 +12,8 @@ support = r'''
 #include <string>
 struct lv_obj_t { std::string text; int width=0; bool hidden=false; };
 lv_obj_t labels[2], fills[2];
+bool quota_fill_valid[2] = {};
+void refresh_agent_home() {}
 lv_obj_t *dashboard_short_quota_label=&labels[0], *dashboard_week_quota_label=&labels[1];
 lv_obj_t *dashboard_short_quota_fill=&fills[0], *dashboard_week_quota_fill=&fills[1];
 const int LV_OBJ_FLAG_HIDDEN=1;
@@ -46,16 +48,12 @@ def main():
     width = sum(advances[offsets.index(ord(c)-32)+1] for c in '~100%')
     assert width <= 57, f'Cached quota text exceeds label width: {width}'
     print('Maximum cached quota advance:', width)
-    with tempfile.TemporaryDirectory(prefix='syna-quota-', ignore_cleanup_errors=True) as tmp:
+    with tempfile.TemporaryDirectory(prefix='syna-quota-') as tmp:
         directory = Path(tmp)
         source = directory / 'test.cpp'
         source.write_text(support + method(BOARD/'ui.c', 'void ui_update_codex_quota(') + scenarios, encoding='utf-8')
         exe = directory / 'test.exe'
-        command = ['cl.exe', '/nologo', '/EHsc', '/std:c++17', '/utf-8', str(source), '/Fe:'+str(exe), '/Fo:'+str(directory/'test.obj')]
-        batch = directory/'build.cmd'
-        vcvars = Path(os.environ.get('SYNA_VCVARS', r'D:\vs\VC\Auxiliary\Build\vcvars64.bat'))
-        batch.write_text('@echo off\nchcp 65001 >nul\nset VSCMD_SKIP_SENDTELEMETRY=1\ncall "'+str(vcvars)+'" >nul\n'+subprocess.list2cmdline(command)+'\nexit /b %errorlevel%\n', encoding='utf-8')
-        subprocess.run(['cmd.exe','/d','/c',str(batch)],cwd=ROOT,check=True)
+        compile_cpp(source, exe)
         subprocess.run([str(exe)],check=True)
 
 if __name__ == '__main__':

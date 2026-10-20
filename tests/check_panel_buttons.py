@@ -1,11 +1,10 @@
 """Compile real board callbacks with fake buttons/LVGL, then exercise gestures.
 
-Run in a Visual C++ developer prompt: python tests/check_panel_buttons.py
+Run with C++17 compiler or Visual C++: python tests/check_panel_buttons.py
 This is a host regression test, not an ESP-IDF build or hardware timing test.
 """
 from pathlib import Path
-import os
-import shutil
+from host_compile import compile_cpp
 import subprocess
 import tempfile
 
@@ -39,6 +38,14 @@ enum { kDeviceStateStarting, kDeviceStateIdle, kAecOff, kAecOnDeviceSide };
 bool picker = false;
 int count = 3, selected = 0, pages = 0, last_request = -1;
 int lock_depth = 0;
+bool payment_open = false, electricity_page = false;
+int payment_next_count = 0, payment_confirm_count = 0;
+bool ui_is_payment_open() { assert(lock_depth); return payment_open; }
+void ui_payment_next() { assert(lock_depth); ++payment_next_count; }
+void ui_payment_confirm() { assert(lock_depth); ++payment_confirm_count; }
+void ui_dismiss_payment() { assert(lock_depth); payment_open = false; }
+bool ui_is_electricity_page() { assert(lock_depth); return electricity_page; }
+void ui_show_payment() { assert(lock_depth); payment_open = true; }
 struct DisplayLockGuard {
     explicit DisplayLockGuard(void*) { ++lock_depth; }
     ~DisplayLockGuard() { --lock_depth; }
@@ -103,6 +110,8 @@ void reset() {
     auto& app = Application::GetInstance();
     app = Application{};
     pressed[0] = pressed[1] = false;
+    payment_open = electricity_page = false;
+    payment_next_count = payment_confirm_count = 0;
     picker = false; count = 3; selected = pages = 0; last_request = -1;
 }
 int main() {
@@ -157,7 +166,17 @@ int main() {
     reset(); CustomBoard early; early.InitializeButtons(); early.display_ = nullptr;
     early.Down(1); early.Up(1); app.Drain();
     early.Down(1); early.key_button_.long_press(); early.Up(1); app.Drain();
-    std::cout << "PASS: picker, empty list, voice/AEC isolation, deferred UI, 8 chord sequences, startup guards\n";
+    reset(); CustomBoard payment_board; payment_board.InitializeButtons();
+    electricity_page = true;
+    payment_board.Down(0); payment_board.Up(0); payment_board.boot_button_.click(); app.Drain();
+    assert(payment_open && app.voice == 0);
+    payment_board.Down(1); payment_board.Up(1); app.Drain();
+    assert(payment_next_count == 1 && pages == 0);
+    payment_board.Down(0); payment_board.Up(0); payment_board.boot_button_.click(); app.Drain();
+    assert(payment_confirm_count == 1 && app.voice == 0);
+    payment_board.Down(1); payment_board.key_button_.long_press(); payment_board.Up(1); app.Drain();
+    assert(!payment_open && !picker && app.voice == 0);
+    std::cout << "PASS: payment routing, picker, empty list, voice/AEC isolation, deferred UI, 8 chord sequences, startup guards\n";
 }
 '''
 
@@ -171,25 +190,12 @@ def main():
         'void CustomLcdDisplay::ToggleComputerPicker()',
         'bool CustomLcdDisplay::ConfirmComputerPicker()',
     ))
-    with tempfile.TemporaryDirectory(prefix='syna-buttons-', ignore_cleanup_errors=True) as tmp:
+    with tempfile.TemporaryDirectory(prefix='syna-buttons-') as tmp:
         directory = Path(tmp)
         source = directory / 'test.cpp'
         source.write_text(support + '\n' + methods + '\n' + callbacks + '\n' + scenarios, encoding='utf-8')
         exe = directory / 'test.exe'
-        command = ['cl.exe', '/nologo', '/EHsc', '/std:c++17', '/utf-8', '/W4',
-                   '/I' + str(BOARD), str(source), '/Fe:' + str(exe),
-                   '/Fo:' + str(directory / 'test.obj')]
-        if shutil.which('cl.exe'):
-            subprocess.run(command, cwd=directory, check=True)
-        else:
-            vcvars = Path(os.environ.get('SYNA_VCVARS', r'D:\vs\VC\Auxiliary\Build\vcvars64.bat'))
-            if not vcvars.is_file():
-                raise SystemExit('Run in a Visual C++ developer prompt or set SYNA_VCVARS.')
-            batch = directory / 'build.cmd'
-            batch.write_text('@echo off\nchcp 65001 >nul\nset VSCMD_SKIP_SENDTELEMETRY=1\ncall "' + str(vcvars) + '" >nul\n' +
-                             subprocess.list2cmdline(command) + '\nexit /b %errorlevel%\n', encoding='utf-8')
-            # UTF-8 code page allows the project to keep its Chinese path.
-            subprocess.run(['cmd.exe', '/d', '/c', str(batch)], cwd=ROOT, check=True)
+        compile_cpp(source, exe, includes=[BOARD])
         subprocess.run([str(exe)], check=True)
 
 

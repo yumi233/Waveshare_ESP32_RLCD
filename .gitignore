@@ -29,3 +29,10 @@ private.pem
 *.key
 备份*/
 .codex-tmp/
+
+# Local electricity history, device backups, and publication artifacts
+electricity-history.json
+electricity-history.tmp
+**/backups/
+**/flash-*.bin
+**/*boot-private*

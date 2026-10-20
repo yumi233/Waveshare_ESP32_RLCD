@@ -1,15 +1,17 @@
-# Copyright (c) 2026 黑沐. MIT License.
+# Copyright (c) 2026 黑沐, 玉米. MIT License.
+"""Build and exercise the real UI with the simulator's pinned LVGL configuration."""
+import os
+from pathlib import Path
 import subprocess
 import sys
-import tempfile
-from pathlib import Path
-root=Path(__file__).resolve().parents[1]
-with tempfile.TemporaryDirectory(prefix="syna-ui-") as temporary:
-    output=Path(temporary)/"test"
-    sources=list((root/"simulator/vendor/lvgl-9.5.0/src").rglob("*.c"))
-    assets=list((root/"simulator/src/assets").glob("*.c"))
-    subprocess.run(["clang","-w","-O0","-DLV_CONF_INCLUDE_SIMPLE","-DLV_LVGL_H_INCLUDE_SIMPLE",
-        "-Iinclude","-Isimulator/vendor/lvgl-9.5.0","-Isimulator/src",
-        "tests/ui_branding.c","simulator/src/ui/ui.c",*map(str,sources),*map(str,assets),
-        "-o",str(output)],cwd=root,check=True)
-    subprocess.run([str(output),str(Path(sys.argv[1]).resolve() if len(sys.argv)>1 else Path(temporary)/"about.ppm")],cwd=root,check=True)
+
+root = Path(__file__).resolve().parents[1]
+build = root / 'simulator/build-mac'
+subprocess.run(['cmake', '-S', str(root / 'simulator'), '-B', str(build),
+                '-DAI_PANEL_BUILD_HOST_TESTS=ON'], check=True)
+subprocess.run(['cmake', '--build', str(build), '--target', 'ui_branding_test', '-j', '6'], check=True)
+output = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else build / 'about.ppm'
+output.parent.mkdir(parents=True, exist_ok=True)
+exe = build / 'bin' / ('ui_branding_test.exe' if os.name == 'nt' else 'ui_branding_test')
+env = dict(os.environ, SDL_VIDEODRIVER='dummy')
+subprocess.run([str(exe), str(output)], check=True, env=env)
